@@ -2,11 +2,11 @@
 
 # Conventions
 level coding:
-* 0 : data gathering
+* D : data gathering
     * every data soure gets a subfolder
-* 1 : data exploration
-* 2 : modelling
-* 3 : results
+* E : data exploration
+* M : modelling
+* R : result - Analysis
 
 variable nomenclature:
 * No units

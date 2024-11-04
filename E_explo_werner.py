@@ -1,4 +1,4 @@
-from load_werner import load_prod, clean_area, clean_production, prod_keys_exclude, file_name
+from D_load_werner import load_prod, clean_area, clean_production, prod_keys_exclude, file_name
 from util import get_path, save_fig
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -74,7 +74,27 @@ def waste_vs_ore_grade(prod):
     return None
 
     
+def ore_vs_waste(prod):
 
+    f, ax = plt.subplots(1, 1, figsize=(10, 10))
+      
+    sns.scatterplot(data=prod, x='t ore milled', y='t waste rock', hue='Primary_commodity', alpha=0.4, s=10, size='%OC ore')
+
+    plt.yscale('log')
+    plt.xscale('log')
+
+    plt.xlabel(f"Ore Milled log(t)")
+    plt.ylabel("Waste Rock log(t)")
+
+    plt.tight_layout()
+
+    save_fig(f'ore_milled_vs_waste_rock.png')
+    plt.show()
+    plt.close
+
+
+
+    return None
     
 
 
@@ -87,7 +107,7 @@ if __name__ == '__main__':
 
     prod_t = prod_trans(prod_clean)
 
-    waste_vs_ore_grade(prod_t)
+    ore_vs_waste(prod_t)
 
     
 

@@ -2,7 +2,7 @@ import os
 import pandas as pd
 import numpy as np
 from util import get_path
-
+from D_sp_data_clean import dtype_conversion, var_exp_path
 
 def load_prod(path):
     '''
@@ -87,12 +87,17 @@ def clean_area(area_df, commodities, out_name):
     return renamed
 
 
-def clean_production(prod_data, prod_keys_exclude):
+def clean_production(prod_data):
     '''
-    Uranium and Diamonds are cutt-off of analysis.
-    
-    '''
+    Clean production data by dropping rows with specific column values and renaming columns.
 
+    Parameters:
+        prod_data (DataFrame): The production data.
+
+    Returns:
+        DataFrame: The cleaned production data.
+        #TODO add also the site_temp_com df
+    '''
     # Reset index if necessary to ensure correct row access
     prod_data = prod_data.reset_index(drop=True)
 
@@ -102,34 +107,19 @@ def clean_production(prod_data, prod_keys_exclude):
     # Drop all rows with columns with 'Cum. Prod.', 'Std Dev', 'Count' in the second column
     excluded = dropped[~dropped.iloc[:, 1].isin(prod_keys_exclude)]
 
-    renamed = excluded.rename({'Mine': 'Mine_type', 'Process': 'Process_type', 'data incomplete': 'Mine', 'Unnamed: 1': 'Year', 'Metals': 'Commodity'}, axis=1)
-
-
-    str_cols = ['Mine', 'Mine_type', 'Process_type', 'Commodity']
-    date = 'Year'
-
-    renamed = renamed[~(renamed['Commodity'] == 'diamonds')]
-
-    renamed[str_cols] = renamed[str_cols].astype(str)
-    # Remove text from date strings
-    renamed[date] = renamed[date].astype(str).str.extract(r'(\d{4})')[0]
-
-    # Convert year to datetime format, setting month and day to a default (e.g., January 1)
-    renamed[date] = pd.to_datetime(renamed[date], format='%Y', errors='coerce')
+    # Get lookup tables
+    werner_lookup = pd.read_excel(var_exp_path, sheet_name='werner_lookup')
+    site_temp_cols = werner_lookup[werner_lookup['Dependency'] == 'site_temp']['Var_original'].values
+    rename_vars = dict(zip(werner_lookup['Var_original'], werner_lookup['Var_trans']))
+    dtype_dict = dict(zip(werner_lookup['Var_trans'], werner_lookup['Dtype']))
     
-    numeric_columns = numeric_columns = renamed.columns.difference(str_cols + [date])
+    site_temp = excluded[excluded.columns.intersection(site_temp_cols)]
+    renamed = site_temp.rename(columns=rename_vars)
+    converted = dtype_conversion(renamed, type_dict=dtype_dict)
 
-    # Replace empty strings with NaN
-    renamed.replace(r'^\s*$', np.nan, regex=True, inplace=True)
-
-    # Proceed to convert numeric columns to float
-    renamed[numeric_columns] = renamed[numeric_columns].astype(float)  
-
-    # if all columns are nan remove
-
-    renamed_empty_com = renamed[~(renamed['Commodity'] == 'nan')]
-
-    return renamed_empty_com
+    drop_nan = converted.dropna(axis=0, how='all')
+    
+    return drop_nan
 
 
 def save_intermediate_data_to_csv(data, out_name, file_extension='.csv'):
@@ -144,11 +134,8 @@ def save_intermediate_data_to_csv(data, out_name, file_extension='.csv'):
 file_name = 'Supplementary Part V - Site Data(1).xlsx'
 com_study = ['Cu', 'PbZn', 'PbZnCu', 'Ni', 'PGEs', 'Au', 'Diamonds', 'Uranium']
 prod_keys_exclude = ['Cum. Prod.', 'Std Dev', 'Count']
-
-
-
-if __name__ == '__main__':
-    
-    prod_path = get_path(file_name) 
+prod_path = get_path(file_name) 
+area, prod = load_prod(prod_path)
+c_prod = clean_production(prod)
 
 

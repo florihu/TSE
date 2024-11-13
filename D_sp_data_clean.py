@@ -33,44 +33,45 @@ def get_data(folder_name):
         for f in os.listdir(folder_path):
             site_data = pd.read_excel(os.path.join(folder_path, f), skiprows=4).dropna(how='all')
             id_col_index = np.where(site_data.columns.str.contains('PROP_ID', case=False))[0][0]
-            id_cols = ['PROP_ID']
+            id_cols = ['Prop_id']
             site_data = site_data.iloc[id_col_index:]
             collect.append(init_conv_nan_removal(site_data, var_types, id_cols, rename_vars))
 
-            return merging_of_dfs(collect, id_cols)
+        return merging_of_dfs(collect, id_cols)
 
     elif folder_name == 'site_com':
         for f in os.listdir(folder_path):
             site_data = pd.read_excel(os.path.join(folder_path, f), skiprows=4).dropna(how='all')
 
             id_col_index = np.where(site_data.columns.str.contains('PROP_ID', case=False))[0][0]
-            id_cols = ['PROP_ID']
+            id_cols = ['Prop_id']
             com = f.split('_')[-1].split('.')[0]
+            
             site_data = site_data.iloc[1:,id_col_index:]
             site_data['COMMODITY'] = com
             
 
             collect.append(init_conv_nan_removal(site_data, var_types, id_cols, rename_vars))
 
-            return concat_if_columns_same(collect)
+        return concat_if_columns_same(collect)
 
     elif folder_name == 'site_temp':
         for f in os.listdir(folder_path):
-            id_cols = ['PROP_ID', 'YEAR']
+            id_cols = ['Prop_id', 'Year']
             site_data = pd.read_excel(os.path.join(folder_path, f), skiprows=4).dropna(how='all')
             id_col_index = np.where(site_data.columns.str.contains('PROP_ID', case=False))[0][0]
             site_data = col_trans(site_data, id_col_index)
             
             collect.append(init_conv_nan_removal(site_data, var_types, id_cols, rename_vars))
 
-            return merging_of_dfs(collect, id_cols)
+        return merging_of_dfs(collect, id_cols)
 
     elif folder_name == 'site_temp_com':
             conc = []
             for f in os.listdir(folder_path):
                 collect = []
                 commodity = f.split('/')[-1]
-                id_cols = ['PROP_ID', 'YEAR']
+                id_cols = ['Prop_id', 'Year']
                 com_path = os.path.join(folder_path, f)
                 for f_ in os.listdir(com_path):
                     site_data = pd.read_excel(os.path.join(com_path, f_), skiprows=4).dropna(how='all')
@@ -88,15 +89,18 @@ def get_data(folder_name):
 
    
 def init_conv_nan_removal(site_data, var_types, id_cols, rename_vars): 
-    dtype_converted = dtype_conversion(site_data, var_types)
-    dtype_converted.set_index(id_cols, inplace=True)
+    drop_name = site_data.drop('PROP_NAME', axis=1, errors='ignore')
+    dtype_converted = dtype_conversion(drop_name, var_types)
     non_nan = nan_remove(dtype_converted)
 
     for c in non_nan.columns:
         if c in rename_vars.keys():
             non_nan.rename(columns={c: rename_vars[c]}, inplace=True)
         else:
-            KeyError(f'The column could not be renamed_{c}')
+            raise KeyError(f'The column could not be renamed_{c}')
+        
+    
+    non_nan.set_index(id_cols, inplace=True)
 
     return non_nan
 
@@ -111,7 +115,11 @@ def merging_of_dfs(df_list, id_cols):
     Returns:
         DataFrame: The merged DataFrame
     '''
-    return reduce(lambda left, right: pd.merge(left, right, how='outer', on=id_cols), df_list).reset_index()
+    merged = reduce(lambda left, right: pd.merge(left, right, how='outer', on=id_cols), df_list).reset_index()
+
+    non_nan = nan_remove(merged)
+
+    return non_nan
 
 def concat_if_columns_same(df_list):
     '''
@@ -129,7 +137,9 @@ def concat_if_columns_same(df_list):
         all_columns = sorted(set().union(*(df.columns for df in df_list)))
         # Reindex each DataFrame to ensure consistent columns and sort them
         conc = [df.reindex(columns=all_columns).sort_index(axis=1) for df in df_list]
-        return pd.concat(conc, axis=0)
+
+        conc_conc = pd.concat(conc, axis=0)
+        return conc_conc.reset_index()
 
 def col_trans(site_data, id_col_index):
     # Assume the third column as the variable name
@@ -180,23 +190,18 @@ def dtype_conversion(df, type_dict):
 
         dtype = type_dict.get(c, None)
 
+        assert dtype is not None, f'The data type could not be found for column: {c}'
+
         if dtype == 'date':
-
-            df[c] = pd.to_numeric(df[c], errors='coerce')
-            df = df[(df[c] >= 1677) & (df[c] <= 2262)]  # Filter rows with valid years
-
-            # Convert to datetime, handling potential issues with mixed formats
-            df[c] = pd.to_datetime(df[c].astype(str), format='%Y', errors='coerce')
+            to_str = df[c].astype('str')
+            df[c] = pd.to_datetime(to_str, errors='coerce')
 
         elif dtype == 'int':
-            df[c] = pd.to_numeric(df[c], errors='coerce').astype('Int64')
+            df[c]= pd.to_numeric(df[c], errors='coerce').astype('Int64')
         elif dtype == 'float':
             df[c] = pd.to_numeric(df[c], errors='coerce')
         elif dtype == 'str':
             df[c] = df[c].astype('str')
-
-        else:
-            KeyError(f'The data type could not be assigned for column: {c} ')
 
     return df
 
@@ -204,4 +209,4 @@ def dtype_conversion(df, type_dict):
 var_exp_path = get_path('variable_description.xlsx')
 
 if __name__ == '__main__':
-    site_folder_path = get_data('site_temp_com')
+    site_folder_path = get_data('site_temp')

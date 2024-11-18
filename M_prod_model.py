@@ -93,14 +93,23 @@ def fit_models():
     rmses = []
     params = []
     sample_sizes = []
-    param_uncertainties = []
-    param_pvalues = []
+    p1 = []
+    p2 = []
+    p3 = []
+    p1_err = []
+    p2_err = []
+    p3_err = []
+    p1_pval = []
+    p2_pval = []
+    p3_pval = []
+
 
     p_group = prod_data.groupby('Prop_name')
     for mine, prod_data in tqdm(p_group, desc='Fitting models to production data'):
         for t in targets_cumsum:
             sample = prod_data.dropna(subset=t)
             sample_size = len(sample)
+            
             if sample_size < min_sample_size:
                 continue
 
@@ -122,33 +131,55 @@ def fit_models():
 
                     r2 = np.corrcoef(sample[t], pred)[0, 1]**2
                     rmse = np.sqrt(np.mean((sample[t] - pred)**2))
+                    
+                    p1.append(popt[0])
+                    p2.append(popt[1])
+                    p1_err.append(perr[0])
+                    p2_err.append(perr[1])
+                    p1_pval.append(p_values[0])
+                    p2_pval.append(p_values[1])
+
+                    if model_name in ['hubbert', 'hubbert_L_restrict']:
+                        p3.append(popt[2])
+                        p3_err.append(perr[2])
+                        p3_pval.append(p_values[2])
+
+                    else:
+                        p3.append(np.nan)
+                        p3_err.append(np.nan)
+                        p3_pval.append(np.nan)
 
                     mine_names.append(mine)
                     target_var_names.append(t)
                     model_names.append(model_name)
                     r2s.append(r2)
                     rmses.append(rmse)
-                    params.append(popt)
-                    param_uncertainties.append(perr)
-                    param_pvalues.append(p_values)
                     sample_sizes.append(sample_size)
                 
                 except RuntimeError:
-                    # Append NaNs if fitting fails
                     mine_names.append(mine)
                     target_var_names.append(t)
                     model_names.append(model_name)
                     r2s.append(np.nan)
                     rmses.append(np.nan)
-                    params.append([np.nan] * len(init_guesses[model_name]))
-                    param_uncertainties.append([np.nan] * len(init_guesses[model_name]))
-                    param_pvalues.append([np.nan] * len(init_guesses[model_name]))
-                    sample_sizes.append(sample_size)
+                    sample_sizes.append(np.nan)
+                    p1.append(np.nan)
+                    p2.append(np.nan)
+                    p3.append(np.nan)
+                    p1_err.append(np.nan)
+                    p2_err.append(np.nan)
+                    p3_err.append(np.nan)
+                    p1_pval.append(np.nan)
+                    p2_pval.append(np.nan)
+                    p3_pval.append(np.nan)
+
         
 
 
-    res_df = pd.DataFrame({'Mine_ID': mine_names, 'Target_var': target_var_names, 'Model': model_names, 'R2': r2, 
-                           'RMSE': rmse, 'Params': params, 'Sample_size': sample_sizes, 'Param_uncertainties': param_uncertainties, 'Param_pvalues': param_pvalues})
+    res_df = pd.DataFrame({'Mine_ID': mine_names, 'Target_var': target_var_names, 'Model': model_names, 'R2': r2s, 
+                           'RMSE': rmses, 'Sample_size': sample_sizes,
+                             'P1_value': p1, 'P2_value': p2, 'P3_value': p3, 'P1_err': p1_err, 'P2_err': p2_err, 'P3_err': p3_err
+                             , 'P1_pval': p1_pval, 'P2_pval': p2_pval, 'P3_pval': p3_pval})
 
     # to json
     res_df.to_json('data\int\production_model_fits.json', orient='records')

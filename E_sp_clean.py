@@ -4,6 +4,8 @@ import pandas as pd
 import numpy as np
 import seaborn as sns
 
+from util import df_to_latex
+
 
 def mine_ids_per_commodity(df, target_commodities):
     """
@@ -54,14 +56,7 @@ def data_coverage(unique_ids, levels = ['site_temp', 'site_com', 'site_temp_com'
 
     return counts_per_id
 
-def df_to_latex(df, filename):
-    root_folder = 'tab'
-    # Convert DataFrame to LaTeX table format
-    latex_table = df.to_latex()
-    # Write LaTeX table to a .tex file
-    with open(f'{root_folder}/{filename}.tex', 'w') as f:
-        f.write(latex_table)
-    return None
+
 
 # Define target commodities as a set
 target_commodities = {'Copper', 'Zinc', 'Nickel'}

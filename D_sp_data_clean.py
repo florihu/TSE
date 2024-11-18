@@ -49,20 +49,26 @@ def get_data(folder_name):
             
             site_data = site_data.iloc[1:,id_col_index:]
             site_data['COMMODITY'] = com
+
+            renamed = init_conv_nan_removal(site_data, var_types, id_cols, rename_vars)
             
 
-            collect.append(init_conv_nan_removal(site_data, var_types, id_cols, rename_vars))
+            collect.append(renamed)
 
         return concat_if_columns_same(collect)
 
     elif folder_name == 'site_temp':
         for f in os.listdir(folder_path):
             id_cols = ['Prop_id', 'Year']
+            commodity = f.split('.')[0].split('_')[-1]
+
             site_data = pd.read_excel(os.path.join(folder_path, f), skiprows=4).dropna(how='all')
             id_col_index = np.where(site_data.columns.str.contains('PROP_ID', case=False))[0][0]
-            site_data = col_trans(site_data, id_col_index)
-            
-            collect.append(init_conv_nan_removal(site_data, var_types, id_cols, rename_vars))
+            site_data = col_trans(site_data, id_col_index, commodity)
+            if site_data.empty:
+                continue
+            renamed = init_conv_nan_removal(site_data, var_types, id_cols, rename_vars)
+            collect.append(renamed)
 
         return merging_of_dfs(collect, id_cols)
 
@@ -141,10 +147,12 @@ def concat_if_columns_same(df_list):
         conc_conc = pd.concat(conc, axis=0)
         return conc_conc.reset_index()
 
-def col_trans(site_data, id_col_index):
+def col_trans(site_data, id_col_index, commodity=None):
     # Assume the third column as the variable name
     var_name = site_data.columns[id_col_index + 1]
 
+    if commodity and any([i in var_name.split('_') for i in vars_spec_handle]):
+        var_name = f'{var_name}_{com_dict[commodity]}'
     # Set headers based on the first row and adjust columns
     site_data.columns = site_data.iloc[0]
     site_data = site_data.iloc[2:, id_col_index:]
@@ -205,6 +213,10 @@ def dtype_conversion(df, type_dict):
 
     return df
 
+
+vars_spec_handle = ['MATTE', 'BULK']
+
+com_dict = {'cu': 'COPPER','ni': 'NICKEL', 'zn': 'ZINC'}
 # script parameters
 var_exp_path = get_path('variable_description.xlsx')
 

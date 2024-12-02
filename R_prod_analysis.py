@@ -5,45 +5,12 @@ import numpy as np
 from util import get_path, save_fig, save_fig_plotnine, df_to_latex
 from sklearn.preprocessing import StandardScaler
 from plotnine import *
-
+from M_prod_model import hubbert_model, hubbert_L_restrict, power_law, femp, prep_data
+from D_load_werner import merge_werner
 from matplotlib.ticker import FuncFormatter
 
 
 modelres = pd.read_json('data\int\production_model_fits.json')
-
-def model_analtics_facet(data, v):
-    '''
-    Function to create a facet grid of histograms for each target variable and model
-    for a given variable of interest.
-    
-    '''
-    # Set up the subplot grid
-    f, ax = plt.subplots(2, 2, figsize=(8, 6))
-
-    # Loop through each unique target variable to create a subplot
-    for i, t in enumerate(data['Target_var'].unique()):
-        # Filter data for the current target variable
-        subset_data = data[data['Target_var'] == t]
-
-        if i == 0 : legbool = True 
-        else : legbool = False
-        
-        # Plot histogram for each target variable and model
-        plot = sns.histplot(data=subset_data, x=v, hue='Model', bins=20, kde=True, ax=ax[i//2, i%2], legend=legbool, palette='viridis_r', alpha=0.6) 
-        
-        # Set titles and labels
-        ax[i//2, i%2].set_title(f'{t}')
-        ax[i//2, i%2].set_xlabel(v)
-        ax[i//2, i%2].set_ylabel('Frequency')
-
-
-    plt.tight_layout()
-    save_fig(f'{v}_prodmod_anal_facet.png')
-    plt.show()
-    plt.close()
-
-    return None
-
 
 def model_analytics_facet_plotnine(data, v, scale=False, unit = 't'):
     '''
@@ -57,24 +24,22 @@ def model_analytics_facet_plotnine(data, v, scale=False, unit = 't'):
             return [f'{i / 1e9:.1f}G' for i in x]
         elif np.max(x) > 1e6:  
             return [f'{i / 1e6:.1f}M' for i in x]
-        
 
     # Base plot setup
     plot = (
         ggplot(data, aes(x=v, fill='Model'))
         + geom_histogram(bins=20, alpha=0.6, position="identity")
         + facet_wrap('~Target_var', nrow=2, scales='free_x')
-        + labs(title=f'{v} Distribution by Target Variable and Model',
-               x=v, y='Frequency')
-        + theme_bw()
+        + labs(x=v, y='Frequency')
+        + theme_minimal()
         + theme(subplots_adjust={'wspace': 0.25, 'hspace': 0.25})
         )
     
     if scale:
         plot += scale_x_continuous(labels=FuncFormatter(auto_scale_formatter))
 
-    if v =='RMSE':
-        plot += labs(x='RMSE (t)')
+    if v in ['RMSE_train', 'RMSE_test']:
+        plot += labs(x=v + f' ({unit})')
     
 
     # Save and draw the plot
@@ -88,7 +53,7 @@ def summarize_results(data):
     Function to summarize the results of the production model fits.
     '''
     # Group the data by target variable and model, and calculate the mean and standard deviation of the R^2 and RMSE values
-    summary = data.groupby(['Target_var', 'Model'])[['R2', 'RMSE']].agg(['mean', 'std']).reset_index()
+    summary = data.groupby(['Target_var', 'Model'])[['R2_train', 'RMSE_train', 'R2_test', 'RMSE_test']].agg(['mean', 'std']).reset_index()
 
     new_columns = ['_'.join(col).strip() for col in summary.columns[2:].values]
 
@@ -111,6 +76,60 @@ def summarize_results(data):
     summary.to_csv(r'data\int\production_model_summary.csv')
 
     return summary
+
+def plot_p_vals(modelres, sig=0.05):
+    # Step 1: Calculate percentage of significant values
+    significance_summary = (
+        modelres.groupby(['Target_var', 'Model'])[['P1_pval', 'P2_pval', 'P3_pval']]
+        .apply(lambda df: (df < sig).sum() / len(df))
+        .reset_index()
+        .melt(id_vars=['Target_var', 'Model'], var_name='Parameter', value_name='Significant_Percentage')
+    )
+    
+    # Step 2: Add non-significant percentage
+    significance_summary['Non_Significant_Percentage'] = 1 - significance_summary['Significant_Percentage']
+    
+    # Step 3: Reshape for plotting
+    plot_data = significance_summary.melt(
+        id_vars=['Target_var', 'Model', 'Parameter'],
+        value_vars=['Significant_Percentage', 'Non_Significant_Percentage'],
+        var_name='Significance',
+        value_name='Percentage'
+    )
+    plot_data['Significance'] = plot_data['Significance'].replace({
+        'Significant_Percentage': 'Significant',
+        'Non_Significant_Percentage': 'Non-Significant'
+    })
+
+    plot_data = plot_data[(plot_data['Model'] == 'femp') & (plot_data['Parameter'].isin(['P1_pval', 'P2_pval']))]
+
+    plot_data['Parameter'] = plot_data['Parameter'].replace({'P1_pval': 'R0', 'P2_pval': 'C'})
+
+    # Step 4: Create the plot
+    plot = (
+        ggplot(plot_data, aes(x='Parameter', y='Percentage', fill='Significance')) +
+        geom_bar(stat='identity', position='stack') +
+        facet_wrap('~Target_var', scales='free') +
+        labs(
+            x='Model',
+            y='Percentage',
+            fill='Significance'
+        ) +
+        theme_minimal() 
+        )
+
+    save_fig_plotnine(plot, 'p_val_significance.png', w=12, h=10)
+    plot.draw()
+    
+    return plot
+
+def error_analysis_pred(modelres):
+    werner = merge_werner()
+    werner_prep = prep_data(werner)
+    
+
+    return None
+
 
 sig = .05
 

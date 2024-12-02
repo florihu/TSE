@@ -1,8 +1,10 @@
 import os
 import pandas as pd
 import numpy as np
-from util import get_path
+from util import get_path, append_to_excel
 from D_sp_data_clean import dtype_conversion, var_exp_path
+from tqdm import tqdm
+from fuzzywuzzy import process
 
 def load_prod(path):
     '''
@@ -18,12 +20,12 @@ def load_prod(path):
     xls = pd.ExcelFile(path)
     sheet_names = xls.sheet_names
     
-    area = pd.read_excel(path, sheet_name=sheet_names[0], skiprows=7, usecols='A:S', header = None)
+    area = pd.read_excel(path, sheet_name=sheet_names[0], skiprows=7, usecols='A:AA', header = None)
     prod = pd.read_excel(path, sheet_name=sheet_names[1], skiprows=1, usecols='A:AX')
     
     return area, prod
 
-def clean_area(area_df, commodities, out_name):
+def clean_area(area_df, commodities):
     """
     Clean the area DataFrame by dropping rows if the commodity in the first column
     matches any in the specified commodities list for the current row and the next three rows.
@@ -58,34 +60,20 @@ def clean_area(area_df, commodities, out_name):
 
     # Drop columns with no name
     area_dropped = masked_area.dropna(axis=1, how='all')
+    area_dropped['Complete'] = area_dropped['Complete'].map(lambda x: x == 'Y')
+
 
     # Columns conversion
+    lookup_site = werner_lookup[werner_lookup['Dependency'] == 'site']
+    site_temp_cols = lookup_site['Var_original'].values
+    rename_vars = dict(zip(lookup_site['Var_original'], lookup_site['Var_trans']))
+    dtype_dict = dict(zip(lookup_site['Var_trans'], lookup_site['Dtype']))
 
-    string_columns = ['Mine','Country', 'Primary']
-    date = 'Google'
+    site_temp = area_dropped[area_dropped.columns.intersection(site_temp_cols)]
+    renamed = site_temp.rename(columns=rename_vars)
+    converted = dtype_conversion(renamed, type_dict=dtype_dict)
 
-    area_dropped[string_columns] = area_dropped[string_columns].astype(str)
-    # Remove text from date strings
-    area_dropped[date] = area_dropped[date].astype(str).str.extract(r'(\d{4})')[0]
-
-    # Convert year to datetime format, setting month and day to a default (e.g., January 1)
-    area_dropped[date] = pd.to_datetime(area_dropped[date], format='%Y', errors='coerce')
-    
-    numeric_columns = numeric_columns = area_dropped.columns.difference(string_columns + [date])
-
-
-    # Replace empty strings with NaN
-    area_dropped.replace(r'^\s*$', np.nan, regex=True, inplace=True)
-
-    # Proceed to convert numeric columns to float
-    area_dropped[numeric_columns] = area_dropped[numeric_columns].astype(float)   
-
-    renamed = area_dropped.rename(columns={'Google': 'Year', 'Primary': 'Commodity'}).set_index('Mine')
-
-    save_intermediate_data_to_csv(renamed, out_name=out_name)
-
-    return renamed
-
+    return converted
 
 def clean_production(prod_data):
     '''
@@ -108,7 +96,6 @@ def clean_production(prod_data):
     excluded = dropped[~dropped.iloc[:, 1].isin(prod_keys_exclude)]
 
     # Get lookup tables
-    werner_lookup = pd.read_excel(var_exp_path, sheet_name='werner_lookup')
     site_temp_cols = werner_lookup[werner_lookup['Dependency'] == 'site_temp']['Var_original'].values
     rename_vars = dict(zip(werner_lookup['Var_original'], werner_lookup['Var_trans']))
     dtype_dict = dict(zip(werner_lookup['Var_trans'], werner_lookup['Dtype']))
@@ -121,7 +108,6 @@ def clean_production(prod_data):
     
     return drop_nan
 
-
 def save_intermediate_data_to_csv(data, out_name, file_extension='.csv'):
     inter_path = 'data/int'
 
@@ -129,13 +115,80 @@ def save_intermediate_data_to_csv(data, out_name, file_extension='.csv'):
 
     data.to_csv(out_path)
 
+def merge_werner(on='Prop_name'):
+    '''
+    Merge the area and production DataFrames on the specified column.
+
+    '''
+    area, prod = load_prod(prod_path)
+    c_area = clean_area(area, com_study)
+    c_prod = clean_production(prod)
+    c_area.set_index(on, inplace=True)
+    c_prod.set_index(on, inplace=True)
+    merged = werner_to_werner_merge(c_prod, c_area)
+    return merged
+
+
+def fuzzy_mapping(area_keys, prod_keys):
+    '''
+    This function performs a fuzzy matching between two lists of keys.
+    
+    Parameters:
+        wkeys (list): A list of keys from the Werner data.
+        spkeys (list): A list of keys from the SP data.
+        
+    Returns:
+        dict: A dictionary containing the Werner keys as keys and the closest SP key as values.
+    '''
+    
+    
+    area_col = []
+    prod_col = []
+    scores = []
+    
+    for akey in tqdm(area_keys, 'matching keys'):
+        match, score = process.extractOne(akey, prod_keys)
+        area_col.append(akey)
+        prod_col.append(match)
+        scores.append(score)
+
+    df = pd.DataFrame({'w_area_key': area_col, 'w_prod_key': prod_col, 'score': scores})
+
+    append_to_excel(r'data\variable_description.xlsx', df, 'fuzzy_werner_a_prod')
+
+    print(np.mean(scores))
+
+    return df
+
+def werner_to_werner_merge(c_prod, c_area):
+
+    match_wtow = pd.read_excel(var_exp_path, sheet_name='fuzzy_werner_a_prod')
+    match_sub = match_wtow[match_wtow['score'] >= 90]
+    area_m = c_area.merge(match_sub, left_on='Prop_name', right_on='w_area_key', how='left')
+
+    prod_m = c_prod.merge(area_m, left_on='Prop_name', right_on='w_prod_key', how='left')
+
+    prod_m.rename(columns={'w_area_key': 'Prop_name'}, inplace=True)
+    
+    # 18 Mines could not be matched because the fuzzy matching score was below 90
+    return prod_m
 
 'script parameters'
 file_name = 'Supplementary Part V - Site Data(1).xlsx'
 com_study = ['Cu', 'PbZn', 'PbZnCu', 'Ni', 'PGEs', 'Au', 'Diamonds', 'Uranium']
 prod_keys_exclude = ['Cum. Prod.', 'Std Dev', 'Count']
 prod_path = get_path(file_name) 
-area, prod = load_prod(prod_path)
-c_prod = clean_production(prod)
+
+werner_lookup = pd.read_excel(var_exp_path, sheet_name='werner_lookup')
+match_wtow = pd.read_excel(var_exp_path, sheet_name='fuzzy_werner_a_prod')
+
+targets = ['Tailings_production', 'Waste_rock_production', 'Concentrate_production', 'Ore_processed_mass']
 
 
+if __name__ == '__main__':
+    merge_werner()
+
+
+    
+
+    

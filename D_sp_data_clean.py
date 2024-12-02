@@ -7,6 +7,7 @@ import numpy as np
 from functools import reduce
 import re
 
+
 def get_data(folder_name):
     """
     Get site data and merges additional entries.
@@ -21,7 +22,7 @@ def get_data(folder_name):
     
     folder_path = get_path(folder_name)
 
-    var_types_df = pd.read_excel(var_exp_path, sheet_name='sp_lookup')
+    var_types_df = pd.read_excel(var_exp_path, sheet_name='sp_lookup', )
 
     var_types = dict(zip(var_types_df['Var_original'], var_types_df['Dtype']))
 
@@ -30,14 +31,15 @@ def get_data(folder_name):
     collect = []
     # site
     if folder_name == 'site':
-        for f in os.listdir(folder_path):
+        for i, f in enumerate(os.listdir(folder_path)):
             site_data = pd.read_excel(os.path.join(folder_path, f), skiprows=4).dropna(how='all')
             id_col_index = np.where(site_data.columns.str.contains('PROP_ID', case=False))[0][0]
             id_cols = ['Prop_id']
-            site_data = site_data.iloc[id_col_index:]
-            collect.append(init_conv_nan_removal(site_data, var_types, id_cols, rename_vars))
+            site_data_id = site_data.iloc[id_col_index:]
+            collect.append(init_conv_nan_removal(site_data_id, var_types, id_cols, rename_vars, first = i))            
 
-        return merging_of_dfs(collect, id_cols)
+        merge = merging_of_dfs(collect, id_cols)
+        return merge
 
     elif folder_name == 'site_com':
         for f in os.listdir(folder_path):
@@ -94,9 +96,12 @@ def get_data(folder_name):
 
 
    
-def init_conv_nan_removal(site_data, var_types, id_cols, rename_vars): 
-    drop_name = site_data.drop('PROP_NAME', axis=1, errors='ignore')
-    dtype_converted = dtype_conversion(drop_name, var_types)
+def init_conv_nan_removal(site_data, var_types, id_cols, rename_vars, first=None): 
+    
+    if first is not 0:
+        site_data = site_data.drop('PROP_NAME', axis=1, errors='ignore')
+
+    dtype_converted = dtype_conversion(site_data, var_types)
     non_nan = nan_remove(dtype_converted)
 
     for c in non_nan.columns:
@@ -125,7 +130,7 @@ def merging_of_dfs(df_list, id_cols):
 
     non_nan = nan_remove(merged)
 
-    return non_nan
+    return non_nan.reset_index()
 
 def concat_if_columns_same(df_list):
     '''
@@ -210,6 +215,8 @@ def dtype_conversion(df, type_dict):
             df[c] = pd.to_numeric(df[c], errors='coerce')
         elif dtype == 'str':
             df[c] = df[c].astype('str')
+        elif dtype == 'bool':
+            df[c] = df[c].astype('bool')
 
     return df
 

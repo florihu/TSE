@@ -2,7 +2,9 @@ import os
 import inspect
 import matplotlib.pyplot as plt
 from pathlib import Path
-
+import pandas as pd
+import itertools
+from plotnine import ggplot, geom_point, facet_wrap, facet_grid, aes
 def get_path(name):
     '''
     Get the path of the specified file or folder within the root directory.
@@ -64,3 +66,86 @@ def df_to_latex(df, filename):
     with open(f'{root_folder}/{filename}.tex', 'w') as f:
         f.write(latex_table)
     return None
+
+
+def data_to_csv_int(data, name):
+    ''' 
+    
+    Save data to a csv file in the data/int folder.
+    Parameters:
+    - data: pd.DataFrame, the data to save.
+    - name: str, the name of the file to save the data to.
+
+    Returns:
+    - None
+
+    '''
+    base_folder = r'data\int'
+    # Get the calling script’s filename
+    calling_script = inspect.stack()[1].filename
+    script_name = os.path.basename(calling_script).replace('.py', '')
+
+    path = os.path.join(base_folder, script_name)
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+    file_path = os.path.join(path, name + '.csv')
+
+    data.to_csv(file_path)
+
+    return None
+
+
+def append_to_excel(filename, df, sheet_name):
+    with pd.ExcelWriter(filename, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+        # Save the new sheet while keeping the existing ones
+        df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+
+
+def get_data_for_column_combo(col1, col2, source, color_column, shape_column):
+    '''
+    Get the required data for a combination of two columns. Each call to this functions generates
+    the data for one of the subplots in the pairplot. Color and shape data are appended as needed. 
+    '''
+    col_data = (source[[col1, col2]]
+            .rename(columns={col1: 'values1', col2: 'values2'})
+            .assign(col1=col1, col2=col2))
+    if not color_column is None:
+        col_data['color_column'] = source[color_column]
+    if not shape_column is None:
+        col_data['shape_column'] = source[shape_column]
+    return col_data
+
+def get_point_args(color_column, shape_column):
+    '''
+    Generate the appropriate input arguments to our geom_point. The names of the
+    columns are fixed as these are generated in a standard way by `get_data_for_column_combo`. 
+    But which should be included varies based on wheter or not color and shape are passed. 
+    '''
+    point_args = dict(x='values1', y='values2')
+
+    if color_column is not None:
+        point_args['color'] = 'color_column'
+    if shape_column is not None:
+        point_args['shape'] = 'factor(shape_column)'
+
+    return point_args
+
+def pairplot(source, columns, color_column=None, shape_column=None, use_facet_grid=False):
+    '''
+    This function creates a pairplot from the data in `source` based on the columns listed in `columns. 
+    Optional arguments included passing a color and shape variabele, those will then determine the color and
+    shape in the resulting pairplot. 
+
+    By default we use `facet_wrap` as this allows us to use `scales='free'`. This is not how a pairplot
+    usually works, so there is an option to force the use of `facet_grid` to get a more traditional plot.
+    '''
+    plot_data = pd.concat([
+        get_data_for_column_combo(col1, col2, source, color_column, shape_column) for col1, col2 in itertools.permutations(columns, 2)
+    ])
+    gg = ggplot(plot_data) + geom_point(aes(**get_point_args(color_column, shape_column)), alpha=0.4, size=2) 
+    if use_facet_grid:
+        return gg + facet_grid('col1 ~ col2')
+    else:
+        return gg + facet_wrap('~ col1 + col2', scales='free')

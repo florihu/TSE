@@ -28,7 +28,7 @@ def model_analytics_facet_plotnine(data, v, scale=False, unit = 't'):
     # Base plot setup
     plot = (
         ggplot(data, aes(x=v, fill='Model'))
-        + geom_histogram(bins=20, alpha=0.6, position="identity")
+        + geom_histogram(bins=20, alpha=0.8, position="identity")
         + facet_wrap('~Target_var', nrow=2, scales='free_x')
         + labs(x=v, y='Frequency')
         + theme_minimal()
@@ -36,15 +36,14 @@ def model_analytics_facet_plotnine(data, v, scale=False, unit = 't'):
         )
     
     if scale:
-        plot += scale_x_continuous(labels=FuncFormatter(auto_scale_formatter))
+        plot += scale_x_log10()
 
     if v in ['RMSE_train', 'RMSE_test']:
         plot += labs(x=v + f' ({unit})')
     
 
     # Save and draw the plot
-    save_fig_plotnine(plot, f'{v}_prodmod_anal_facet.png')
-    plot.draw()
+    save_fig_plotnine(plot, f'{v}_prodmod_facet.png')
     
     return None
 
@@ -101,9 +100,9 @@ def plot_p_vals(modelres, sig=0.05):
         'Non_Significant_Percentage': 'Non-Significant'
     })
 
-    plot_data = plot_data[(plot_data['Model'] == 'femp') & (plot_data['Parameter'].isin(['P1_pval', 'P2_pval']))]
+    plot_data = plot_data[(plot_data['Model'] == 'hubbert')]
 
-    plot_data['Parameter'] = plot_data['Parameter'].replace({'P1_pval': 'R0', 'P2_pval': 'C'})
+    plot_data['Parameter'] = plot_data['Parameter'].replace({'P1_pval': 'L', 'P2_pval': 'k', 'P3_pval': 't0'})
 
     # Step 4: Create the plot
     plot = (
@@ -118,7 +117,7 @@ def plot_p_vals(modelres, sig=0.05):
         theme_minimal() 
         )
 
-    save_fig_plotnine(plot, 'p_val_significance.png', w=12, h=10)
+    save_fig_plotnine(plot, 'p_val_significance.png', w=8, h=6)
     plot.draw()
     
     return plot
@@ -134,4 +133,5 @@ def error_analysis_pred(modelres):
 sig = .05
 
 if __name__ == '__main__':
-    summarize_results(modelres)
+    plot_p_vals(modelres, sig)
+    

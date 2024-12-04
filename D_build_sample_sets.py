@@ -111,16 +111,15 @@ def calc_sp(df_sp, conc_calc_cols):
     # Calculate derived columns
     df_sp = df_sp.copy()
     df_sp['Waste_rock_production'] = df_sp['Ore_processed_mass'] * df_sp['Stripping_ratio']
-    df_sp['Concentrate_production'] = df_sp[conc_calc_cols].sum(axis=1) * 1e-3  # Convert to tonnes
+    df_sp['Concentrate_production'] = df_sp[conc_calc_cols].sum(axis=1) * 1e3  # Convert from kt to t
      # If concentrate productio = 0 replace wiht nan
     df_sp['Concentrate_production'] = df_sp['Concentrate_production'].replace(0, np.nan)
 
     # only if concentrate production >0 ore - concentrate
-    df_sp['Tailings_production'] = np.where(df_sp['Concentrate_production'] > 0, df_sp['Ore_processed_mass'] - df_sp['Concentrate_production'], np.nan)
+    df_sp['Tailings_production'] = np.where((df_sp['Concentrate_production'] > 0) & (df_sp['Ore_processed_mass'] > 0), df_sp['Ore_processed_mass'] - df_sp['Concentrate_production'], np.nan)
 
-    # Ensure no negative tailings production
-    if (df_sp['Tailings_production'] < 0).any():
-        raise ValueError("Tailings production contains negative values.")
+    # Drop inconsistent records - 45 records include nans
+    df_sp[df_sp['Tailings_production'] < 0] = np.nan
 
     return df_sp
 

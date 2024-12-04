@@ -54,7 +54,7 @@ def save_fig_plotnine(plot, name, w=8, h=6):
 
     file_path = os.path.join(path, name)
 
-    plot.save(file_path, width=w, height=h, dpi=300 )
+    plot.save(file_path, width=w, height=h)
 
     return None
 

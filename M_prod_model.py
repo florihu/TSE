@@ -445,7 +445,6 @@ def fit_models():
     # Save results
     res_df.to_json('data/int/production_model_fits.json', orient='records')
     data_records.to_csv('data/int/data_records.csv', index=False)
-
     return res_df
 
 
@@ -462,7 +461,7 @@ def prep_data():
 
 targets = ['Tailings_production', 'Waste_rock_production', 'Concentrate_production', 'Ore_processed_mass']
 
-init_guesses = {'hubbert': (10**9, 0.1, 20), 'power_law': (0, 0), 'femp': (10**9, 0.1)}
+init_guesses = {'hubbert': (10**8, 0.1, 20), 'power_law': (0, 0), 'femp': (10**8, 0.1)}
 lower_bounds = {'hubbert': (0, 0, 0), 'power_law': (0, 0), 'femp': (0, 0)}
 upper_bounds = {'hubbert': (np.inf, np.inf, 100), 'power_law': (np.inf, np.inf), 'femp': (np.inf, 1)}
 

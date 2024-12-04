@@ -8,16 +8,16 @@ from plotnine import *
 from M_prod_model import hubbert_model, hubbert_L_restrict, power_law, femp, prep_data
 from D_load_werner import merge_werner
 from matplotlib.ticker import FuncFormatter
+from sklearn.preprocessing import StandardScaler
 
 
-modelres = pd.read_json('data\int\production_model_fits.json')
 
 def model_analytics_facet_plotnine(data, v, scale=False, unit = 't'):
     '''
     Function to create a facet grid of histograms for each target variable and model
     for a given variable of interest using plotnine, with optional log scale and automatic y-axis scaling.
     '''
-    
+
     # Define a formatter function for automatic scaling
     def auto_scale_formatter(x, _):
         if np.max(x) > 1e9:
@@ -27,19 +27,19 @@ def model_analytics_facet_plotnine(data, v, scale=False, unit = 't'):
 
     # Base plot setup
     plot = (
-        ggplot(data, aes(x=v, fill='Model'))
+        ggplot(data, aes(x=v, fill='Class'))
         + geom_histogram(bins=20, alpha=0.8, position="identity")
         + facet_wrap('~Target_var', nrow=2, scales='free_x')
         + labs(x=v, y='Frequency')
         + theme_minimal()
         + theme(subplots_adjust={'wspace': 0.25, 'hspace': 0.25})
+        + scale_fill_brewer(type='qual', palette='Set2')
         )
     
-    if scale:
-        plot += scale_x_log10()
-
+       
     if v in ['RMSE_train', 'RMSE_test']:
-        plot += labs(x=v + f' ({unit})')
+        plot += labs(x=v + 'log(t)')
+        plot += scale_x_log10()
     
 
     # Save and draw the plot
@@ -115,6 +115,7 @@ def plot_p_vals(modelres, sig=0.05):
             fill='Significance'
         ) +
         theme_minimal() 
+        + scale_fill_brewer(type='qual', palette='Set2')
         )
 
     save_fig_plotnine(plot, 'p_val_significance.png', w=8, h=6)
@@ -122,16 +123,189 @@ def plot_p_vals(modelres, sig=0.05):
     
     return plot
 
-def error_analysis_pred(modelres):
-    werner = merge_werner()
-    werner_prep = prep_data(werner)
-    
+
+def plot_errors(data_records):
+    data_records['Prop_id'] = data_records['Prop_id'].astype(int)
+
+    for t in rec.Target_var.unique():
+        plot = (
+            ggplot(data_records[data_records['Target_var'] == t], aes(x='Observed', y='Predicted', color = 'Class'))
+            + geom_point(alpha= 0.5)
+            + labs(x='Observed log(t)', y='Predicted log(t)')
+            + facet_wrap('~Model', scales='free')
+            + theme_minimal()
+            + scale_fill_brewer(type='qual', palette='Set2')
+            )
+        # add the 1:1 line
+        plot += geom_abline(intercept=0, slope=1, linetype='dashed', color='black')
+
+        # x y log
+        plot += scale_x_log10()
+        plot += scale_y_log10()
+
+
+        #log transformed 10% deviation lines
+        plot += geom_abline(intercept=0, slope=.9, linetype='dashed', color='black')
+        plot += geom_abline(intercept=0, slope=1.1, linetype='dotted', color='black')
+
+
+        save_fig_plotnine(plot, f'{t}_error_plot.png')
+        plot.draw()
 
     return None
 
 
-sig = .05
+def error_time_series(data_records):
+    data_records['Prop_id'] = data_records['Prop_id'].astype(str)
+
+    data_records['Year'] = pd.to_datetime(data_records['Year'], errors='coerce').dt.year
+
+    data_records = data_records[data_records['Year'] > 1950]
+
+    for t in rec.Target_var.unique():
+        data = data_records[data_records['Target_var'] == t]
+        data['Error'] = data['Predicted'] - data['Observed']
+        data['Error'] = StandardScaler().fit_transform(data['Error'].values.reshape(-1, 1))
+
+
+        plot = (
+            ggplot(data, aes(x='Year', y='Error', color = 'Class'))
+            + geom_point(alpha= 0.5)
+            + labs(x='Year', y='Error standardized')
+            + facet_wrap('~Model', scales='free')
+            + theme_minimal()
+            + scale_fill_brewer(type='qual', palette='Set2')
+            )
+
+        save_fig_plotnine(plot, f'{t}_error_time_series_plot.png')
+        plot.draw()
+
+    return None
+
+
+
+def identify_significant_model(modelres, sig=0.05):
+    """
+    Classify model results based on parameter significance.
+    
+    Class:
+    - "FH" = Both femp and hubbert parameters are significant
+    - "F" = Only femp parameters are significant
+    - "H" = Only hubbert parameters are significant
+    - "N" = None of the parameters are significant
+    """
+
+    # Create boolean masks for significance
+    modelres['femp_significant'] = (
+        (modelres['Model'] == 'femp') &
+        (modelres[['P1_pval', 'P2_pval']] < sig).all(axis=1)
+    )
+    modelres['hubbert_significant'] = (
+        (modelres['Model'] == 'hubbert') &
+        (modelres[['P1_pval', 'P2_pval', 'P3_pval']] < sig).all(axis=1)
+    )
+
+    # Aggregate significance per group
+    agg = modelres.groupby(['Mine_ID', 'Target_var']).agg({
+        'femp_significant': 'any',
+        'hubbert_significant': 'any'
+    }).reset_index()
+
+    # Determine classification based on significance
+    conditions = [
+        agg['femp_significant'] & agg['hubbert_significant'],
+        agg['femp_significant'],
+        agg['hubbert_significant']
+    ]
+    choices = ['FH', 'F', 'H']
+    agg['Class'] = np.select(conditions, choices, default='N')
+
+    # Merge classifications back to the original DataFrame
+    modelres = modelres.merge(agg[['Mine_ID', 'Target_var', 'Class']], on=['Mine_ID', 'Target_var'])
+
+    # Drop intermediate columns
+    modelres = modelres.drop(columns=['femp_significant', 'hubbert_significant'])
+
+    return modelres
+
+
+
+def class_bar_chart(modelres):
+    '''
+    Create a bar chart showing the class shares differentiated by Target_var.
+
+    Class Descriptions:
+    - "FH": Both femp and hubbert parameters are significant
+    - "F": Only femp parameters are significant
+    - "H": Only hubbert parameters are significant
+    - "N": None of the parameters are significant
+    '''
+    
+    # Group by Target_var and Class, and calculate the share of each class
+    class_share = (
+        modelres.groupby(['Target_var', 'Class']).size()
+        .reset_index(name='Count')
+    )
+    class_total = class_share.groupby('Target_var')['Count'].transform('sum')
+    class_share['Share'] = class_share['Count'] / class_total
+    class_share['Percentage'] = (class_share['Share'] * 100).round(1).astype(str) + '%'  # Convert to percentage
+
+    # Create the bar chart using plotnine
+    plot = (
+        ggplot(class_share, aes(x='Target_var', y='Share', fill='Class'))
+        + geom_bar(stat='identity', position='stack')
+        + theme_minimal()
+        + scale_fill_brewer(type='qual', palette='Set2', name='Class')
+        + theme(legend_position='right')
+    )
+    # Include value per category
+    plot += geom_text(aes(label='Percentage'), position=position_stack(vjust=0.5), size=8)
+
+    # Save the plot (optional)
+    save_fig_plotnine(plot, 'class_bar_chart.png')
+    plot.draw()
+
+    return plot
+
+def box_plot(data, v):
+    '''
+    Create a box plot showing the distribution of R^2 values for each Target_var and Model.
+    '''
+    
+    # Create the box plot using plotnine
+    plot = (
+        ggplot(data, aes(x='Target_var', y=v, fill='Class'))
+        + geom_boxplot()
+        + theme_minimal()
+        + scale_fill_brewer(type='qual', palette='Set2', name='Class')
+    )
+    if v in ['RMSE_train', 'RMSE_test']:
+        plot += labs(x=v + 'log(t)')
+        plot += scale_x_log10()
+
+
+
+    # Save the plot (optional)
+    save_fig_plotnine(plot, f'{v}_box_plot.png')
+    plot.draw()
+
+    return plot
+
+
+
+
+
 
 if __name__ == '__main__':
-    plot_p_vals(modelres, sig)
-    
+    sig = .05    
+    modelres = pd.read_json(r'data\int\production_model_fits.json')
+    rec = pd.read_csv(r'data\int\data_records.csv')
+    res_trans = identify_significant_model(modelres, sig)
+    res_trans.rename(columns={'Mine_ID': 'Prop_id'}, inplace=True)
+
+    merge = rec.merge(res_trans[['Prop_id', 'Target_var', 'Model', 'Class']], on=['Prop_id', 'Target_var', 'Model'], how='left')
+
+    box_plot(res_trans, 'R2_train')
+    box_plot(res_trans, 'R2_test')
+    box_plot(res_trans, 'RMSE_train')
+    box_plot(res_trans, 'RMSE_test')

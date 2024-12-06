@@ -134,7 +134,7 @@ def plot_errors(data_records):
             + labs(x='Observed log(t)', y='Predicted log(t)')
             + facet_wrap('~Model', scales='free')
             + theme_minimal()
-            + scale_fill_brewer(type='qual', palette='Set2')
+            + scale_color_brewer(type='qual', palette='Set2')
             )
         # add the 1:1 line
         plot += geom_abline(intercept=0, slope=1, linetype='dashed', color='black')
@@ -149,7 +149,7 @@ def plot_errors(data_records):
         plot += geom_abline(intercept=0, slope=1.1, linetype='dotted', color='black')
 
 
-        save_fig_plotnine(plot, f'{t}_error_plot.png')
+        save_fig_plotnine(plot, f'{t}_error_plot.png', w=10, h=8)
         plot.draw()
 
     return None
@@ -181,7 +181,6 @@ def error_time_series(data_records):
         plot.draw()
 
     return None
-
 
 
 def identify_significant_model(modelres, sig=0.05):
@@ -227,8 +226,6 @@ def identify_significant_model(modelres, sig=0.05):
     modelres = modelres.drop(columns=['femp_significant', 'hubbert_significant'])
 
     return modelres
-
-
 
 def class_bar_chart(modelres):
     '''
@@ -293,7 +290,28 @@ def box_plot(data, v):
 
 
 
+def sample_size_box(modelres):
 
+    subset = modelres[['Target_var',  'Sample_size_train', 'Sample_size_test']]
+
+    subset.rename(columns={'Sample_size_train': 'Train', 'Sample_size_test': 'Test'}, inplace=True)
+
+    # one sample size column and another with type
+    subset = subset.melt(id_vars='Target_var', var_name='Sample_type', value_name='Sample_size', value_vars = ['Train', 'Test'])
+
+
+    plot = (
+        ggplot(subset, aes(x='Target_var', y='Sample_size', fill='Sample_type'))
+        + geom_boxplot()
+        + theme_minimal()
+        + scale_fill_brewer(type='qual', palette='Set2', name='Class')
+    )
+
+    save_fig_plotnine(plot, 'sample_size_box_plot.png')
+    plot.draw()
+
+
+    return None
 
 
 if __name__ == '__main__':
@@ -305,7 +323,4 @@ if __name__ == '__main__':
 
     merge = rec.merge(res_trans[['Prop_id', 'Target_var', 'Model', 'Class']], on=['Prop_id', 'Target_var', 'Model'], how='left')
 
-    box_plot(res_trans, 'R2_train')
-    box_plot(res_trans, 'R2_test')
-    box_plot(res_trans, 'RMSE_train')
-    box_plot(res_trans, 'RMSE_test')
+    plot_errors(merge)

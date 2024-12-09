@@ -59,11 +59,19 @@ def save_fig_plotnine(plot, name, w=8, h=6):
     return None
 
 def df_to_latex(df, filename):
-    root_folder = 'tab'
+    base_folder = 'tab'
+
+    calling_script = inspect.stack()[1].filename
+    script_name = os.path.basename(calling_script).replace('.py', '')
+
+    path = os.path.join(base_folder, script_name)
+    if not os.path.exists(path):
+        os.makedirs(path)
+    
     # Convert DataFrame to LaTeX table format
     latex_table = df.to_latex()
     # Write LaTeX table to a .tex file
-    with open(f'{root_folder}/{filename}.tex', 'w') as f:
+    with open(f'{path}/{filename}.tex', 'w') as f:
         f.write(latex_table)
     return None
 

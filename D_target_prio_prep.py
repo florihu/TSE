@@ -70,6 +70,9 @@ def merge_werner_conc(df_werner, conc):
     merge = merge[(merge['Prop_id'].notna()) & (merge['Year'].notna())]
     merge['Prop_id'] = merge['Prop_id'].astype(int)
 
+    # Take only mines with a mapping score >90
+    merge = merge[merge['score_y'] >= 90]
+
     starting_year_operation = merge.groupby('Prop_id')['Year'].min().reset_index()
     merge = merge.merge(starting_year_operation, on='Prop_id', suffixes=('', '_start'))
     merge.rename(columns={'Year_start': 'Start_up_year'}, inplace=True)
@@ -162,25 +165,64 @@ def prio_source(df_sp, df_werner, target_vars):
     assert all(col in sp_merged.columns for col in target_vars), 'Target vars not in SP df'
     assert all(col in werner_merged.columns for col in target_vars), 'Target vars not in Werner df'
 
+    assert len(sp_merged) == len(sp_merged.drop_duplicates(subset=['Prop_id', 'Year'])), 'Duplicated id-year pairs in sp_merged'
+    assert len(werner_merged) == len(werner_merged.drop_duplicates(subset=['Prop_id', 'Year'])), 'Duplicated id-year pairs in werner_merged'
+
     # Initialize result DataFrame
     result = all_keys.copy()
 
     # Assign values and sources
     for var in target_vars:
         # Assign SP values when available
-        result[var] = sp_merged[var].where(sp_merged[var].notna(), werner_merged[var])
+        result[var] = sp_merged[var].combine_first(werner_merged[var])
         result[f'{var}_source'] = np.where(
                 sp_merged[var].notna() & (sp_merged[var] != 0), 'SP',
                 np.where(
                     werner_merged[var].notna() & (werner_merged[var] != 0), 'WERNER',
                     np.nan
                 )
-        )               
-    
-    # drop columns that have ore or waste na 
+        )
+
+     # drop columns that have ore or waste na 
     result = result[((~result['Ore_processed_mass'].isna() & ~result['Waste_rock_production'].isna()) | 
-                    (~result['Concentrate_production'].isna() & ~result['Tailings_production'].isna()) &
-                    (~result['Start_up_year'].isna()))]
+                    (~result['Concentrate_production'].isna() & ~result['Tailings_production'].isna()))]
+ 
+    
+    # Take only ids that are in the unique_sp_ids
+    result = result[result['Prop_id'].isin(unique_sp_ids)]
+   
+    start_up_non_na = df_sp[['Prop_id', 'Start_up_year']].dropna().drop_duplicates()
+
+    min_year_per_mine_all = result.groupby('Prop_id')['Year'].min().reset_index()
+
+    start_up_non_na = min_year_per_mine_all.merge(start_up_non_na, on='Prop_id', how='left')
+
+    #substitute the start up year with the min year if the start up year is bigger than the min year
+    start_up_non_na['Start_up_year'] = np.where(start_up_non_na['Start_up_year'] > start_up_non_na['Year'], start_up_non_na['Year'], start_up_non_na['Start_up_year'])
+
+    start_up_non_na.drop('Year', axis=1, inplace=True)
+
+    # We take the start up year from the SP data - consistency
+    result = result.merge(start_up_non_na, on='Prop_id', how='left')
+
+    # Filter result without starting year
+    result = result[~result['Start_up_year'].isna()]
+
+    primary_commodity = df_sp[['Prop_id', 'Primary_commodity']].dropna().drop_duplicates()
+    result = result.merge(primary_commodity, on='Prop_id', how='left')
+
+    assert len(start_up_non_na) == start_up_non_na['Prop_id'].nunique(), 'Duplicate start up years per prop id'
+    
+    # Drop na start up years
+    result = result[~result['Start_up_year'].isna()]
+
+    result['Start_up_year'] = result['Start_up_year'].dt.year.astype(int)
+    result['Year'] = result['Year'].dt.year.astype(int)
+
+    # Assert no start up year > year
+    assert not any(result['Start_up_year'] > result['Year']), 'Start up year > year'
+    # check if there are duplicate propid start up year pairs after nan removal
+    assert len(result[['Prop_id', 'Start_up_year']].dropna().drop_duplicates()) == result[['Prop_id', 'Start_up_year']].dropna()['Prop_id'].nunique(), 'Duplicate propid start up year pairs'
 
     data_to_csv_int(result, 'target_vars_prio_source')
 
@@ -201,6 +243,7 @@ conc = pd.read_excel(var_exp_path, sheet_name='fuzzy_werner_sp')
 site_temp = get_data('site_temp')
 site = get_data('site')
 
+# ids that contain one of the target commodities
 unique_sp_ids = mine_ids_per_commodity(site, {'Copper', 'Zinc', 'Nickel'})[1]
 
 
@@ -209,7 +252,7 @@ df_sp = merge_sp(site_temp, site, on='Prop_id')
 
 
 
-target_vars=['Ore_processed_mass', 'Waste_rock_production', 'Concentrate_production', 'Tailings_production', 'Start_up_year']
+target_vars=['Ore_processed_mass', 'Waste_rock_production', 'Concentrate_production', 'Tailings_production']
 
 conc_calc_cols = ['Copper_concentrate_production', 'Nickel_concentrate_production',
        'Zinc_concentrate_production',  'Nico_powder_production',

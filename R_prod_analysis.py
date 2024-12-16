@@ -12,22 +12,18 @@ from sklearn.preprocessing import StandardScaler
 
 
 
-def model_analytics_facet_plotnine(data, v, scale=False, unit = 't'):
+def model_analytics_hist(data, v):
     '''
     Function to create a facet grid of histograms for each target variable and model
     for a given variable of interest using plotnine, with optional log scale and automatic y-axis scaling.
     '''
 
-    # Define a formatter function for automatic scaling
-    def auto_scale_formatter(x, _):
-        if np.max(x) > 1e9:
-            return [f'{i / 1e9:.1f}G' for i in x]
-        elif np.max(x) > 1e6:  
-            return [f'{i / 1e6:.1f}M' for i in x]
+    if v == 'RMSE':
+        data[v] = data[v] / 10**6 # convert to Mt
 
     # Base plot setup
     plot = (
-        ggplot(data, aes(x=v, fill='Class'))
+        ggplot(data, aes(x=v, fill='Model'))
         + geom_histogram(bins=20, alpha=0.8, position="identity")
         + facet_wrap('~Target_var', nrow=2, scales='free_x')
         + labs(x=v, y='Frequency')
@@ -37,13 +33,13 @@ def model_analytics_facet_plotnine(data, v, scale=False, unit = 't'):
         )
     
        
-    if v in ['RMSE_train', 'RMSE_test']:
-        plot += labs(x=v + 'log(t)')
-        plot += scale_x_log10()
+    if v == 'RMSE':
+        plot += labs(x=v + ' (Mt)')
+        
     
 
     # Save and draw the plot
-    save_fig_plotnine(plot, f'{v}_prodmod_facet.png')
+    save_fig_plotnine(plot, f'{v}_prodmod_facet_by_model.png')
     
     return None
 
@@ -205,7 +201,7 @@ def identify_significant_model(modelres, sig=0.05):
     )
 
     # Aggregate significance per group
-    agg = modelres.groupby(['Mine_ID', 'Target_var']).agg({
+    agg = modelres.groupby(['Prop_id', 'Target_var']).agg({
         'femp_significant': 'any',
         'hubbert_significant': 'any'
     }).reset_index()
@@ -220,7 +216,7 @@ def identify_significant_model(modelres, sig=0.05):
     agg['Class'] = np.select(conditions, choices, default='N')
 
     # Merge classifications back to the original DataFrame
-    modelres = modelres.merge(agg[['Mine_ID', 'Target_var', 'Class']], on=['Mine_ID', 'Target_var'])
+    modelres = modelres.merge(agg[['Prop_id', 'Target_var', 'Class']], on=['Prop_id', 'Target_var'])
 
     # Drop intermediate columns
     modelres = modelres.drop(columns=['femp_significant', 'hubbert_significant'])
@@ -319,8 +315,8 @@ if __name__ == '__main__':
     modelres = pd.read_json(r'data\int\production_model_fits.json')
     rec = pd.read_csv(r'data\int\data_records.csv')
     res_trans = identify_significant_model(modelres, sig)
-    res_trans.rename(columns={'Mine_ID': 'Prop_id'}, inplace=True)
 
     merge = rec.merge(res_trans[['Prop_id', 'Target_var', 'Model', 'Class']], on=['Prop_id', 'Target_var', 'Model'], how='left')
 
-    plot_errors(merge)
+    
+   

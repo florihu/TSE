@@ -10,6 +10,8 @@ import numpy as np
 
 from scipy.stats import zscore
 
+from M_prod_model import hubbert_model
+
 
 def hist_per_target(data, targets):
 
@@ -289,6 +291,7 @@ def error_plots_time_series(data, targets):
 
     sample_49 = np.random.choice(data['Prop_id'].unique(), size=49, replace=False)
     data = data[data['Prop_id'].isin(sample_49)]
+
     data['Residual'] = data['Residual'] / 10**6 # Convert to Mt
     
     for t in targets:
@@ -297,14 +300,14 @@ def error_plots_time_series(data, targets):
                         + geom_point()
                         + facet_wrap('~Prop_id', scales='free')
                         + theme_minimal()
-                        + labs(x='Year', y='Value (Mt)')
+                        + labs(x='Year', y='Residual (Mt)')
                 )
             
             # dont show legend
             plot = plot + theme(legend_position='none')
             
             if len(data[(data['Target_var'] == t) & (data['Model'] == m)]) > 10:
-                plot = plot + geom_smooth()
+                plot = plot + geom_smooth(color = '#b2182b')
 
             save_fig_plotnine(plot, f'{t}_{m}_error_time_series.png', w=18, h=12)
 
@@ -338,31 +341,30 @@ def pred_obs_ts(data, targets):
     return None
 
 
-
 def error_vs_obs(data, targets):
     sample_49 = np.random.choice(data['Prop_id'].unique(), size=49, replace=False)
     data = data[data['Prop_id'].isin(sample_49)]
 
 
-    data['Error'] = (data['Observed'] - data['Predicted'] )/ 10**6 # Convert to Mt
-
+    data['Residual'] = data['Residual'] / 10**6 # Convert to Mt
     data['Observed'] = data['Observed'] / 10**6 # Convert to Mt
 
     data['Prop_id'] = data['Prop_id'].astype('category')
 
     for t in targets:
         for m in data.Model.unique():
-            plot = (ggplot(data[(data['Target_var'] == t) & (data['Model'] == m)], aes(x='Observed', y='Error'))
+            plot = (ggplot(data[(data['Target_var'] == t) & (data['Model'] == m)], aes(x='Observed', y='Residual'))
                         + geom_point()
                         + facet_wrap('~Prop_id', scales='free')
                         + theme_minimal()
-                        + labs(x='Observed (Mt)', y='Error (Mt)')
+                        + labs(x='Observed (Mt)', y='Residual (Mt)')
                         
                 )
             
             # do geom smooth only if sample size is sufficient
-            if len(data[(data['Target_var'] == t) & (data['Model'] == m)]) > 10:
-                plot = plot + geom_smooth()
+            if len(data[(data['Target_var'] == t) & (data['Model'] == m)]) > 15:
+                # add geom smooth plus regularization
+                plot = plot + geom_smooth(method= 'lm' ,color = '#b2182b')
             
 
             # dont show legend
@@ -408,6 +410,54 @@ def obs_vs_pred(data, targets):
     return None
 
 
+def error_and_cum_prod_hubbert(res, targets):
+    # select hubbert only
+    hubbert = res[res['Model'] == 'hubbert']
+
+    # get the hubbert evaluation for each target
+    def hubbert_eval_func(group):
+        years = np.arange(group['Year'].min(), group['Year'].max() + 1)
+        evaluations = hubbert_model(years, group['P1_value'].iloc[0], group['P2_value'].iloc[0], group['P3_value'].iloc[0]) / 10**6 # convert to Mt
+        return pd.DataFrame({'Year': years, 'Cum_prod': evaluations})
+
+    hubbert_eval = hubbert.groupby(['Prop_id', 'Target_var']).apply(hubbert_eval_func).reset_index(level=[0,1])
+
+
+
+    # plot the residual of the fitting and the cumulative production
+    hubbert_eval = hubbert_eval.reset_index()
+
+    sample_25 = np.random.choice(res['Prop_id'].unique(), size=25, replace=False)
+    res = res[res['Prop_id'].isin(sample_25)]
+    hubbert_eval = hubbert_eval[hubbert_eval['Prop_id'].isin(sample_25)]
+    
+    res['Residual'] = res['Residual'] / 10**6 # Convert to Mt
+
+    for t in targets:
+
+        plot = (ggplot(res[(res['Target_var'] == t)], aes(x='Year', y='Residual'))
+                    + geom_point()
+                    + facet_wrap('~Prop_id', scales='free')
+                    + theme_minimal()
+                    + labs(x='Year', y='Value (Mt)')
+                    + geom_smooth(color = '#b2182b')
+            )
+        
+        
+        
+        # include hubbert fit
+        plot = plot + geom_line(hubbert_eval[(hubbert_eval['Target_var'] == t)], aes(x='Year', y='Cum_prod'), color='#2166ac')
+        
+        # show legend
+        plot = plot + theme(legend_position='bottom')
+
+        save_fig_plotnine(plot, f'{t}_hubbert_res_cum_prod', w=18, h=12)
+
+
+    return None
+
+
+
 def main():
     
     path = r'data\int\D_build_sample_sets\target_vars_prio_source.csv'
@@ -416,9 +466,11 @@ def main():
     data = pd.read_csv(path)
     targets = ['Tailings_production', 'Waste_rock_production', 'Ore_processed_mass', 'Concentrate_production']
     res = pd.read_csv(model_res_path)
-    pred_obs_ts(res, targets)
-    obs_vs_pred(res, targets)
+    modelres = pd.read_json(r'data\int\production_model_fits.json')
     
+    merge = res.merge(modelres[['Prop_id', 'Target_var', 'Model', 'P1_value', 'P2_value', 'P3_value']], on=['Prop_id', 'Target_var', 'Model'], how='left')
+    
+    error_and_cum_prod_hubbert(merge, targets)
     
     return None
 

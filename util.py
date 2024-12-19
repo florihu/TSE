@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 import itertools
 from plotnine import ggplot, geom_point, facet_wrap, facet_grid, aes
+import geopandas as gpd
 def get_path(name):
     '''
     Get the path of the specified file or folder within the root directory.
@@ -75,6 +76,28 @@ def df_to_latex(df, filename):
         f.write(latex_table)
     return None
 
+def df_to_gpkg(df, filename, crs):
+    '''
+    Save a DataFrame to a GeoPackage file in the data/gpkg folder. given it is a Geodataframe object
+    '''
+    base_folder = 'data/int'
+
+    assert 'geometry' in df.columns, 'The DataFrame must have a geometry column to be saved as a GeoPackage file.'
+    # transform to gdf
+    df = gpd.GeoDataFrame(df, geometry='geometry', crs = crs)
+
+    calling_script = inspect.stack()[1].filename
+    script_name = os.path.basename(calling_script).replace('.py', '')
+
+    path = os.path.join(base_folder, script_name)
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+    file_path = os.path.join(path, filename + '.gpkg')
+
+    df.to_file(file_path, driver='GPKG')
+
+    return None
 
 def data_to_csv_int(data, name):
     ''' 

@@ -6,20 +6,36 @@ from scipy.spatial import ConvexHull
 
 from plotnine import *
 import numpy as np
-from util import save_fig_plotnine, data_to_csv_int
+from util import save_fig_plotnine, data_to_csv_int, df_to_gpkg
 from tqdm import tqdm
 
 
 def alloc_poly_to_sp():
     merge_n = read_and_merge()
 
-    
-
     merge_g = merge_n.groupby('id_data_source')['area_mine'].agg(Area_mine='sum', Count='count').reset_index()
     merge_g['Area_mine'] = merge_g['Area_mine'] / 10**6 # convert to km2
 
-    include_source_data = merge_g.merge(polys_ids[['id_data_source', 'data_source']], left_on='id_data_source', right_on='id_data_source', how='left')
+    # combine all the primary commodities and material list for one id data source 
+    merge_g['Primary_commodities'] = merge_n.groupby('id_data_source')['primary_materials_list'].apply(lambda x: ', '.join(str(item) if item is not None else '' for item in x)).reset_index()['primary_materials_list']
+    merge_g['Material_list'] = merge_n.groupby('id_data_source')['materials_list'].apply(lambda x: ', '.join(str(item) if item is not None else '' for item in x)).reset_index()['materials_list']
     
+    # drop duplicate entries for both columns
+    merge_g['Primary_commodities'] = merge_g['Primary_commodities'].apply(lambda x: ', '.join(list(set(x.split(', ')))))
+    merge_g['Material_list'] = merge_g['Material_list'].apply(lambda x: ', '.join(list(set(x.split(', ')))))
+
+    # for every id_data_source, get the combine the data sources in one string
+
+    ds = merge_n.groupby('id_data_source')['data_source'].apply(lambda x: '; '.join(sorted(set(item.strip() for item in ';'.join(x.astype(str)).split(';') if item)))).reset_index()
+    include_source_data = merge_g.merge(ds, left_on='id_data_source', right_on='id_data_source', how='left')
+    
+
+
+    include_source_data['geometry'] = merge_n.groupby('id_data_source')['geometry'].apply(
+    lambda x: x.unary_union.centroid).reset_index(drop=True)
+
+    df_to_gpkg(include_source_data, 'allocated_area_coms', crs = merge_n.crs)
+
     return include_source_data
 
 
@@ -72,5 +88,3 @@ def explo_land_use(land_use):
 
 if __name__ == '__main__':
     allocated_polys = alloc_poly_to_sp()
-
-    explo_land_use(allocated_polys)

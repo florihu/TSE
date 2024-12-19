@@ -154,8 +154,6 @@ def plot_errors(data_records):
 def error_time_series(data_records):
     data_records['Prop_id'] = data_records['Prop_id'].astype(str)
 
-    data_records['Year'] = pd.to_datetime(data_records['Year'], errors='coerce').dt.year
-
     data_records = data_records[data_records['Year'] > 1950]
 
     for t in rec.Target_var.unique():
@@ -218,10 +216,60 @@ def identify_significant_model(modelres, sig=0.05):
     # Merge classifications back to the original DataFrame
     modelres = modelres.merge(agg[['Prop_id', 'Target_var', 'Class']], on=['Prop_id', 'Target_var'])
 
+    # rmse & r2 comparison
+    comp = modelres.groupby(['Prop_id', 'Target_var']).apply(lambda x: x[x.Model =='hubbert']['RMSE']>x[x.Model =='femp']['RMSE'])
+
     # Drop intermediate columns
     modelres = modelres.drop(columns=['femp_significant', 'hubbert_significant'])
 
     return modelres
+
+
+def identify_cum_model(modelres, sig=0.05):
+    """
+    Classify model results based on parameter significance, RMSE, and R2.
+    Prefer Hubbert model in case of a trade-off between RMSE and R2.
+    """
+    # Create boolean masks for significance
+    modelres['femp_significant'] = (
+        (modelres['Model'] == 'femp') &
+        (modelres[['P1_pval', 'P2_pval']] < sig).all(axis=1)
+    )
+    modelres['hubbert_significant'] = (
+        (modelres['Model'] == 'hubbert') &
+        (modelres[['P1_pval', 'P2_pval', 'P3_pval']] < sig).all(axis=1)
+    )
+
+    # Aggregate significance per group
+    agg = modelres.groupby(['Prop_id', 'Target_var']).agg({
+        'femp_significant': 'any',
+        'hubbert_significant': 'any',
+        'RMSE': lambda x: x.iloc[0] if len(x) == 1 else x.iloc[1] - x.iloc[0],
+        'R2': lambda x: x.iloc[0] if len(x) == 1 else x.iloc[1] - x.iloc[0]
+    }).reset_index()
+
+    # Determine classification based on significance, RMSE, and R2
+    def classify(row):
+        if row['femp_significant'] and row['hubbert_significant']:
+            if row['RMSE'] < 0 and row['R2'] > 0:
+                return 'F'  # femp has lower RMSE and higher R2
+            elif row['RMSE'] > 0 and row['R2'] < 0:
+                return 'H'  # Hubber has lower RMSE and higher R2
+            else:
+                return 'H'  # Prefer Hubbert in case of trade-off
+        elif row['femp_significant']:
+            return 'F'
+        elif row['hubbert_significant']:
+            return 'H'
+        else:
+            return 'N'
+
+    agg['Class'] = agg.apply(classify, axis=1)
+
+    return agg
+
+
+
 
 def class_bar_chart(modelres):
     '''
@@ -314,9 +362,9 @@ if __name__ == '__main__':
     sig = .05    
     modelres = pd.read_json(r'data\int\production_model_fits.json')
     rec = pd.read_csv(r'data\int\data_records.csv')
-    res_trans = identify_significant_model(modelres, sig)
+    #res_trans = identify_significant_model(modelres, sig)
 
-    merge = rec.merge(res_trans[['Prop_id', 'Target_var', 'Model', 'Class']], on=['Prop_id', 'Target_var', 'Model'], how='left')
+    #merge = rec.merge(res_trans[['Prop_id', 'Target_var', 'Model', 'Class']], on=['Prop_id', 'Target_var', 'Model'], how='left')
 
-    
+    res_cum_model = identify_cum_model(modelres, sig)
    

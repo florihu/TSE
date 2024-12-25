@@ -35,14 +35,14 @@ def return_integrated_values(row, df_res):
         p1, p2, p3 = df_res[(df_res.Prop_id == row['Prop_id']) & 
                             (df_res.Target_var == row['Target_var']) &
                             (df_res.Model == 'hubbert')][['P1_value', 'P2_value', 'P3_value']].values.flatten()
-        return hubbert_model(period, p1, p2, p3)
+        return period, hubbert_model(period, p1, p2, p3)
         
     elif row['Class'] == 'F':
         # unpack the values
         p1, p2 = df_res[(df_res.Prop_id == row['Prop_id']) & 
                             (df_res.Target_var == row['Target_var']) &
                             (df_res.Model == 'femp')][['P1_value', 'P2_value']].values.flatten()
-        return femp(period, p1, p2)
+        return period, femp(period, p1, p2)
 
     else:
         return None
@@ -50,7 +50,7 @@ def return_integrated_values(row, df_res):
 
 def get_cumsum(df):
     cum_ident = identify_cum_model(df)
-    cum_ident['Cumsum_2019'] = cum_ident.apply(lambda row: return_integrated_values(row, df), axis=1)
+    cum_ident[['Year_delt','Cumsum_2019']] = cum_ident.apply(lambda row: return_integrated_values(row, df), axis=1)
 
     cum_pivot = cum_ident.pivot_table(index='Prop_id', columns='Target_var', values='Cumsum_2019').reset_index()
 

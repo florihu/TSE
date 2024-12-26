@@ -45,15 +45,23 @@ def return_integrated_values(row, df_res):
         return period, femp(period, p1, p2)
 
     else:
-        return None
-    
+        return period, None   
 
 def get_cumsum(df):
+    # Identify cumulative model data
     cum_ident = identify_cum_model(df)
-    cum_ident[['Year_delt','Cumsum_2019']] = cum_ident.apply(lambda row: return_integrated_values(row, df), axis=1)
 
-    cum_pivot = cum_ident.pivot_table(index='Prop_id', columns='Target_var', values='Cumsum_2019').reset_index()
+    # Apply the integration function and create new columns
+    cum_ident[['Active_years', 'Cumsum_2019']] = cum_ident.apply(
+        lambda row: return_integrated_values(row, df), axis=1, result_type="expand"
+    )
 
+    # Pivot table to restructure the data
+    cum_pivot = cum_ident.pivot_table(
+        index=['Prop_id', 'Active_years'], columns='Target_var', values='Cumsum_2019'
+    ).reset_index()
+
+    # Return the final pivot table
     return cum_pivot
 
 def com_col_trans(df, threshold=0, com_path = r'data\variable_description.xlsx'):
@@ -62,12 +70,14 @@ def com_col_trans(df, threshold=0, com_path = r'data\variable_description.xlsx')
     rel_com = pd.read_excel(com_path, sheet_name='Byproduct_conc')['Com_names_sp'].tolist()
 
     # One-hot encode materials with a minimum frequency threshold
-    material_dummies = pd.get_dummies(df['Material_list'].str.split(',', expand=True).stack())
+    material_dummies = pd.get_dummies(df['materials_list'].str.split(',', expand=True).stack())
     material_dummies = material_dummies.groupby(level=0).sum()
     material_dummies = material_dummies.loc[:, material_dummies.sum() > threshold]
     
     # Create a set of primary commodities for each mine
-    primary_commodities = df['Primary_commodities'].str.split(',').apply(lambda x: set(map(str.strip, x)))
+    primary_commodities = df['primary_materials_list'].apply(
+            lambda x: set(map(str.strip, x.split(','))) if isinstance(x, str) else set()
+        )
     
     # Initialize the result dataframe with the mine_id
     result = pd.DataFrame({'id_data_source': df['id_data_source']})
@@ -84,7 +94,7 @@ def com_col_trans(df, threshold=0, com_path = r'data\variable_description.xlsx')
 
     # merge with the original data
     result = df.merge(result, on='id_data_source', how='left')
-    result.drop(['Primary_commodities', 'Material_list'], axis=1, inplace=True)
+    result.drop(['primary_materials_list', 'materials_list'], axis=1, inplace=True)
     return result
 
 def byproduct_map(conc_path=r'data\es4c05293_si_001(1).xlsx', output_path= r'data\variable_description.xlsx'):
@@ -128,13 +138,78 @@ def divide_ws_tail(df, crs = 'EPSG:6933'):
 
     return None
 
+def get_coms_to_area(poly_df_p, cluster_df_p,  area_df_p):
+    '''
+    This function is used to merge the commodities to the area data.
+    One duplicate is dropped in the process, 
+    '''
+    cluster_df = pd.read_csv(cluster_df_p)
+    poly_df = gpd.read_file(poly_df_p)
+    area_df = gpd.read_file(area_df_p)
+
+    poly_to_cluster = poly_df.merge(cluster_df, on='id_cluster', how='left')
+    subset = poly_to_cluster[['id_data_source', 'primary_materials_list', 'materials_list']].drop_duplicates()
+
+    subset['id_data_source'] = subset['id_data_source'].astype(str)
+
+    # drop duplicates - there
+    subset.drop_duplicates(subset='id_data_source', inplace=True)
+
+    # merge with the area df
+    area_com = area_df.merge(subset, on='id_data_source', how='left')
+    
+    #assert that every id is unique
+    assert area_com['id_data_source'].nunique() == area_com.shape[0], 'The id_data_source is not unique'
+
+    return area_com
+
+
+def get_epi_per_mine():
+    
+    '''
+    Merges environmental performance index (EPI) data with allocated area data based on geographical boundaries.
+    This function reads in three datasets: world administrative boundaries, EPI results, and allocated area data.
+    It then performs a spatial join to merge the area data with the world boundaries and subsequently merges the 
+    resulting dataset with the EPI data based on ISO country codes. The final output is a DataFrame containing 
+    the data source IDs and their corresponding EPI values.
+    Returns:
+        pd.DataFrame: A DataFrame with columns 'id_data_source' and 'EPI', where 'EPI' represents the environmental 
+                      performance index for each data source. 
+    
+    
+    '''
+    world_bound_p = r'data\world_bound\world-administrative-boundaries.shp'
+    epi_p = r'data\epi\epi2024results.csv'
+    area_p = r'data\int\D_land_map\allocated_area.gpkg'
+
+    area = gpd.read_file(area_p)
+    epi = pd.read_csv(epi_p)
+    world_bound = gpd.read_file(world_bound_p)
+
+    world_bound.to_crs(area.crs, inplace=True)
+
+    j = gpd.sjoin(area, world_bound, how='left', predicate='within')
+
+    m = j[['id_data_source', 'iso3']].merge(epi, left_on='iso3', right_on='iso', how='left')
+
+    m_sub = m[['id_data_source', 'EPI.new']].rename(columns={'EPI.new': 'EPI'})
+
+    # assert that the id_data_source is unique
+    assert m_sub['id_data_source'].nunique() == m_sub.shape[0], 'The id_data_source is not unique'
+    return m_sub
+
+
 def main():
      # load the modelres
     mod_res_p = r'data\int\production_model_fits.json'
     targets_fit_p = r'data\int\D_target_prio_prep\target_vars_prio_source.csv'
     li_path = r'data\int\D_lito_map\li_class_by_mine.csv'
-    land_com_path = r'data\int\D_land_map\land_com.csv'
-    land_com_path = r'data\int\D_land_map\allocated_area_coms.gpkg'
+    poly_path = r'data\dcrm_cluster_data\dcrm_cluster_data\mine_polygons.gpkg'
+    area_path = r'data\int\D_land_map\allocated_area.gpkg'
+    cluster_path = r'data\dcrm_cluster_data\dcrm_cluster_data\cluster_points_concordance.csv'
+    
+
+    area_com = get_coms_to_area(poly_path, cluster_path, area_path)
 
     mod_res = pd.read_json(mod_res_p)
     targets_fit = pd.read_csv(targets_fit_p)
@@ -144,8 +219,6 @@ def main():
     cum = get_cumsum(merged)
 
     li = pd.read_csv(li_path)
-
-    area_com = gpd.read_file(land_com_path)
 
     area_com_trans = com_col_trans(area_com)
 
@@ -157,7 +230,11 @@ def main():
 
     merge_cum = cum.merge(merge_li, left_on='Prop_id', right_on='id_data_source', how='left')
 
-    divide_ws_tail(merge_cum)
+    epi = get_epi_per_mine()
+
+    merge_epi = merge_cum.merge(epi, on='id_data_source', how='left')
+    
+    divide_ws_tail(merge_epi)
 
     return None
 

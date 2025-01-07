@@ -25,6 +25,9 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
 #import gradient boosting regressor
 from sklearn.ensemble import GradientBoostingRegressor
+#linear regriession
+from sklearn.linear_model import LinearRegression, ElasticNet
+from sklearn.svm import SVR
 
 def multi_cor(df, name, log_vars, unit_conv):
 
@@ -214,6 +217,7 @@ def fit_random_forest(df, name, log_vars, cat_vars, num_vars, target_vars):
     X = df.drop(target_vars, axis=1)
     y = pd.DataFrame(df[target_vars].iloc[:, 0])
 
+
     # Train-test split (80% train, 20% test)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
@@ -233,16 +237,7 @@ def fit_random_forest(df, name, log_vars, cat_vars, num_vars, target_vars):
     X_train_pca = X_train_pca[:, :index_80]
     X_test_pca = X_test_pca[:, :index_80]
 
-    # Define the hyperparameter grid for RandomizedSearchCV
-    param_dist = {
-        'n_estimators': [50, 100, 150, 200],
-        'max_depth': [None, 5, 10, 20, 30],
-        'min_samples_split': [2, 5, 10],
-        'min_samples_leaf': [1, 2, 4],
-        'max_features': ['auto', 'sqrt', 'log2']
-    }
-
-    # Initialize the Random Forest model
+    
     gb = RandomForestRegressor()
 
     gb.fit(X_train_pca, y_train_scaled)
@@ -268,8 +263,6 @@ def fit_random_forest(df, name, log_vars, cat_vars, num_vars, target_vars):
 
     # Return feature importances from the best model
     return gb.feature_importances_
-
-
 
 
 def summary_stats(df, name, target_vars, cat_vars, num_vars, unit_conv):
@@ -506,11 +499,10 @@ def main():
         
         sample = gpd.read_file(path)
         sample, cat_vars, num_vars = prep_dset(sample)
-        fit_random_forest(sample, name, log_vars, cat_vars, num_vars, target_vars)
+        summary_stats(sample, name, target_vars, cat_vars, num_vars, unit_conv)
     
 
     return None
-
 
 
 if __name__ == '__main__':

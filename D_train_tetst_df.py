@@ -20,7 +20,8 @@ from R_prod_analysis import identify_cum_model
 from D_land_map import alloc_poly_to_sp
 import geopandas as gpd
 from tqdm import tqdm
-from util import append_to_excel, data_to_csv_int, df_to_gpkg
+from util import append_to_excel, data_to_csv_int, df_to_gpkg, save_fig_plotnine
+from plotnine import *
 
 def return_integrated_values(row, df_res):
     '''
@@ -124,6 +125,10 @@ def byproduct_map(conc_path=r'data\es4c05293_si_001(1).xlsx', output_path= r'dat
     return conc
 
 def divide_ws_tail(df, crs = 'EPSG:6933'):
+    
+
+    #keep only first instance of prop id
+    df.drop_duplicates(subset='Prop_id', inplace=True)
     # assert that the prop ids are unique
     assert df['Prop_id'].nunique() == df.shape[0], 'The prop ids are not unique'
 
@@ -163,8 +168,24 @@ def get_coms_to_area(poly_df_p, cluster_df_p,  area_df_p):
 
     return area_com
 
+def eps_explo_plot(eps):
+    
+    # filter important mining countries
+    eps = eps[eps['COU'].isin(['AUS', 'CAN', 'CHL', 'RUS', 'USA', 'ZAF', 'BRA', 'PER', 'IDN', 'MEX'])]
 
-def get_epi_per_mine():
+    plot = (ggplot(eps, aes(x='TIME_PERIOD', y= 'OBS_VALUE', color='COU')) 
+    + geom_point()
+    + geom_line()
+    + theme_minimal()
+    + labs(x='Year', y='EPS')
+    + geom_smooth(method='lm', color='black')
+    )
+
+    save_fig_plotnine(plot, 'eps_explo.png')
+    print(plot)
+
+
+def get_eps_per_mine():
     
     '''
     Merges environmental performance index (EPI) data with allocated area data based on geographical boundaries.
@@ -179,24 +200,43 @@ def get_epi_per_mine():
     
     '''
     world_bound_p = r'data\world_bound\world-administrative-boundaries.shp'
-    epi_p = r'data\epi\epi2024results.csv'
+    eps_p = r'data\eps\OECD,DF_EPS,+all(1).csv'
     area_p = r'data\int\D_land_map\allocated_area.gpkg'
 
+    eps = pd.read_csv(eps_p)
+    eps_f = eps[eps['VAR'] == 'EPS']
+    #eps_explo_plot(eps_f)
+    
+    # calculate mean and slope of linear regression per country
+    eps_f['OBS_VALUE'] = eps_f['OBS_VALUE'].astype(float)
+    eps_f['TIME_PERIOD'] = eps_f['TIME_PERIOD'].astype(int)
+
+    eps_stat = eps_f.groupby('COU').apply(
+                lambda x: pd.DataFrame({
+                    'COU': [x['COU'].values[0]],
+                    'EPS_mean': [x['OBS_VALUE'].mean()],
+                    'EPS_slope': [x.sort_values('TIME_PERIOD')['OBS_VALUE'].diff().mean()]
+                })).reset_index(drop=True)
+
     area = gpd.read_file(area_p)
-    epi = pd.read_csv(epi_p)
     world_bound = gpd.read_file(world_bound_p)
 
+    world_bound = gpd.read_file(world_bound_p)
     world_bound.to_crs(area.crs, inplace=True)
 
     j = gpd.sjoin(area, world_bound, how='left', predicate='within')
 
-    m = j[['id_data_source', 'iso3']].merge(epi, left_on='iso3', right_on='iso', how='left')
+    m = j[['id_data_source','continent', 'iso3']].merge(eps_stat, left_on='iso3', right_on='COU', how='left')
 
-    m_sub = m[['id_data_source', 'EPI.new']].rename(columns={'EPI.new': 'EPI'})
+    # Group by continent and calculate the mean for EPS_mean and EPS_slope
+    continent_means = m.groupby('continent')[['EPS_mean', 'EPS_slope']].transform('mean')
+
+    # Fill NaN values in EPS_mean and EPS_slope with continent-level means
+    m[['EPS_mean', 'EPS_slope']] = m[['EPS_mean', 'EPS_slope']].fillna(continent_means)
 
     # assert that the id_data_source is unique
-    assert m_sub['id_data_source'].nunique() == m_sub.shape[0], 'The id_data_source is not unique'
-    return m_sub
+    assert m['id_data_source'].nunique() == m.shape[0], 'The id_data_source is not unique'
+    return m
 
 
 def main():
@@ -205,7 +245,7 @@ def main():
     targets_fit_p = r'data\int\D_target_prio_prep\target_vars_prio_source.csv'
     li_path = r'data\int\D_lito_map\li_class_by_mine.csv'
     poly_path = r'data\dcrm_cluster_data\dcrm_cluster_data\mine_polygons.gpkg'
-    area_path = r'data\int\D_land_map\allocated_area.gpkg'
+    area_path = r'data\int\D_land_map\allocated_area_union_geom.gpkg'
     cluster_path = r'data\dcrm_cluster_data\dcrm_cluster_data\cluster_points_concordance.csv'
     
 
@@ -230,9 +270,9 @@ def main():
 
     merge_cum = cum.merge(merge_li, left_on='Prop_id', right_on='id_data_source', how='left')
 
-    epi = get_epi_per_mine()
+    eps = get_eps_per_mine()
 
-    merge_epi = merge_cum.merge(epi, on='id_data_source', how='left')
+    merge_epi = merge_cum.merge(eps, on='id_data_source', how='left')
     
     divide_ws_tail(merge_epi)
 
@@ -240,5 +280,5 @@ def main():
 
 
 if __name__ == '__main__':
-   
+    
     main()

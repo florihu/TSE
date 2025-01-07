@@ -54,7 +54,7 @@ def calc_spat_par(group, df):
         comp_w = w_area / conv_area_w
         comp = area / conv_area
 
-        geom = conv.centroid
+        geom = un.centroid
 
         col = pd.Series({'Polygon_count': len(group), 'Weight':w , 'Area_mine': area, 'Area_mine_weighted': w_area, 'Convex_hull_area': conv_area,'Convex_hull_area_weighted': conv_area_w, 'Convex_hull_perimeter': conv_per,'Convex_hull_perimeter_weighted': conv_per_w ,'Compactness': comp, 'Compactness_weighted': comp_w, 'geometry': geom})
         
@@ -72,7 +72,7 @@ def alloc_cluster_to_mine(df):
     area_per_mine = gpd.GeoDataFrame(area_per_mine, geometry='geometry', crs='EPSG:6933')
     
     # Save to GeoPackage
-    df_to_gpkg(area_per_mine, 'allocated_area', crs='EPSG:6933')
+    df_to_gpkg(area_per_mine, 'allocated_area_union_geom', crs='EPSG:6933')
     
     return area_per_mine
 

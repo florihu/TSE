@@ -38,31 +38,38 @@ def unary_union_per_mine_parallel():
     
     return result_gdf
 
-
-def spat_join(li_path, target_crs = 'EPSG:6933'):
+def spat_join(li_path, m_path,  target_crs = 'EPSG:6933'):
     li = pyo.read_dataframe(li_path)
-    mines = read_and_merge()
+    mines = gpd.read_file(m_path)
+
     mines = mines.to_crs(target_crs)
     li = li.to_crs(target_crs)
+
     joined = gpd.sjoin(li, mines, predicate='intersects')
+    
     return joined
 
 def li_class_to_columns(join):
     join.rename(columns={'xx': 'Li_class'}, inplace=True)
-    # Area weighted class distribution
-    by_mine = join.groupby(['id_data_source', 'Li_class'])['area_mine'].sum().unstack().fillna(0) 
-
-    # Normalize by mine
-    by_mine = by_mine.div(by_mine.sum(axis=1), axis=0)    
-    return by_mine
+    
+    # Generate dummy variables for 'Li_class'
+    dummies = pd.get_dummies(join['Li_class']).astype(int)
+        
+    # Combine the dummy variables with the original data
+    join = pd.concat([join['id_data_source'], dummies], axis=1)
+    
+    return join
 
 def main():
     li_path = 'data\LiMW_GIS 2015.gdb\LiMW_GIS 2015.gdb'
-    join = spat_join(li_path)
+    m_path =  r'data\int\D_land_map\allocated_area_union_geom.gpkg'
+    
+    join = spat_join(li_path, m_path)
+    
 
-    by_mine = li_class_to_columns(join)
+    j_coltrans = li_class_to_columns(join)
 
-    data_to_csv_int(by_mine, 'li_class_by_mine')
+    data_to_csv_int(j_coltrans, 'li_class_by_mine')
 
     return None
 

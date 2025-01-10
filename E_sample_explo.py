@@ -9,6 +9,10 @@ Explored:
 3. Distribution of the features
 
 '''
+
+stat_res_p = r'data\int\E_sample_explo\stat_res_rec.xlsx'
+
+
 import numpy as np
 import pandas as pd
 import geopandas as gpd
@@ -17,7 +21,7 @@ import seaborn as sns
 from scipy import stats
 import seaborn as sns
 from statsmodels.stats.outliers_influence import variance_inflation_factor
-from util import save_fig_plotnine, data_to_csv_int, df_to_gpkg, save_fig, get_path, df_to_latex
+from util import save_fig_plotnine, data_to_csv_int, df_to_gpkg, save_fig, get_path, df_to_latex, append_to_excel
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.decomposition import PCA
@@ -29,29 +33,29 @@ from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.linear_model import LinearRegression, ElasticNet
 from sklearn.svm import SVR
 
-def multi_cor(df, name, log_vars, unit_conv):
+import networkx as nx
 
-    df[log_vars]  = df[log_vars].apply(np.log10)
-    df.rename(columns={col: f'{col} {unit_conv[col]}' for col in log_vars}, inplace=True)
+def multi_cor(cor, name, sig_level=0.05):    
+   
+    # pivot vars 
+    cor['Significant'] = cor['P-Value'] < sig_level
 
-    corr = df.corr().round(2)
     
-    # Convert index and columns to strings
-    corr.index = corr.index.astype(str)
-    corr.columns = corr.columns.astype(str)
+    # Add and asterix label to the correlation if it is significant
+    cor['Label'] = cor.apply(lambda x: f"{x['Correlation']:.2f}" +'*' if x['Significant'] else f"{x['Correlation']:.2f}", axis=1)
     
-    # Melt the correlation matrix
-    corr_melted = corr.reset_index().melt(id_vars='index', var_name='variable', value_name='correlation')
-    
-    # Ensure 'index' and 'variable' are treated as categories
-    corr_melted['index'] = pd.Categorical(corr_melted['index'])
-    corr_melted['variable'] = pd.Categorical(corr_melted['variable'])
-    
+
+    if name == 'tailings':
+        high, low = '#8e0152', '#276419'
+    elif name == 'waste_rock':
+        high, low = '#67001f', '#053061'
+
+
     # Create the heatmap
     plot = (
-        ggplot(corr_melted, aes(x='index', y='variable', fill='correlation'))
+        ggplot(cor, aes(x='Variable 1', y='Variable 2', fill='Correlation'))
         + geom_tile(color="white", size=0.1)
-        + scale_fill_gradient2(low="#276419", mid="white", high='#8e0152', midpoint=0)
+        + scale_fill_gradient2(low=low, mid="white", high=high, midpoint=0)
         + theme_minimal()
         + theme(
             axis_text_x=element_text(angle=45, hjust=1),
@@ -61,7 +65,7 @@ def multi_cor(df, name, log_vars, unit_conv):
             legend_position="right"
         )
         + coord_fixed()
-        + geom_text(aes(label='correlation'), size=4, color="black")
+        + geom_text(aes(label='Label'), size=5, color="black")
     )
         
     # Save the plot
@@ -109,20 +113,32 @@ def multi_cor(df, name, log_vars, unit_conv):
     save_fig_plotnine(plot, 'histogram_per_variable.png', w=14, h=14)
     return None
 
+def unit_rename(df, log_vars, num_vars, units):
+    for c in units:
+        if c in log_vars:
+            units[c] = f'log {units[c]}'
+            
+    
+    df.rename(columns={col: f'{col} {units[col]}' for col in units}, inplace=True)
 
-def hist_per_variable(df, name,  log_vars,  cat_vars, num_vars, unit_conv):
+    # rename numerical variables to include the units
+    num_vars = [f'{col} {units[col]}' for col in num_vars]
+    
+    return df, num_vars
 
-    # Transform numerical variables to log scale
-    if log_vars:       
-        # rename and add the unit to the name
-        df[log_vars] = df[log_vars].apply(np.log10)
-        rename_prep = {col: f'{col} {unit_conv[col]}' for col in unit_conv}
-        df.rename(columns=rename_prep, inplace=True)
+def hist_per_var_type(df, name, cat_vars, num_vars, units):
 
-        #change num vars
-        num_vars = [rename_prep[col] if col in rename_prep.keys() else col for col in num_vars]
+    df = immpute_vars(df, cat_vars, num_vars)
 
-    # Create histogram for numerical variables
+    log_vars = test_normality(df, name, num_vars)      
+
+    df.set_index('Prop_id', inplace=True)
+
+    df[log_vars] = df[log_vars].apply(np.log10)
+    
+    df, num_vars = unit_rename(df, log_vars, num_vars, units)
+    
+    # Create histogram for nu   merical variables
     if num_vars:
         df_num = df[num_vars].reset_index().melt(id_vars='Prop_id', var_name='variable', value_name='value')
         df_num['Prop_id'] = pd.Categorical(df_num['Prop_id'])
@@ -143,15 +159,19 @@ def hist_per_variable(df, name,  log_vars,  cat_vars, num_vars, unit_conv):
         )
     
         # Save numerical variables histogram
-        save_fig_plotnine(plot_num, f'{name}_histogram_numerical_variables.png', w=14, h=14)
+        save_fig_plotnine(plot_num, f'{name}_histogram_numerical_variables.png', w=14, h=10)
     
     # Create histogram for categorical variables
     if cat_vars:
+        df_cat = df[cat_vars]
 
-        df_cat = df[cat_vars].reset_index().melt(id_vars='Prop_id', var_name='variable', value_name='value')
+        #filter out vars wiht only 0
+        df_cat = df_cat.loc[:, (df_cat.sum(axis=0) != 0)]
+
+        df_cat = df_cat.reset_index().melt(id_vars='Prop_id', var_name='variable', value_name='value')
         df_cat['Prop_id'] = pd.Categorical(df_cat['Prop_id'])
         df_cat['variable'] = pd.Categorical(df_cat['variable'])
-
+        df_cat['value'] = df_cat['value'].astype(int)
         # Ensure the values are 0 or 1
         assert df_cat['value'].isin([0, 1]).all(), "Categorical variables must have values 0 or 1."
 
@@ -172,12 +192,11 @@ def hist_per_variable(df, name,  log_vars,  cat_vars, num_vars, unit_conv):
             )
         )
         # Save categorical variables histogram
-        save_fig_plotnine(plot_cat, f'{name}_histogram_categorical_variables.png', w=14, h=14)
+        save_fig_plotnine(plot_cat, f'{name}_histogram_categorical_variables.png', w=14, h=10)
 
     return None
 
-
-def test_normality(df, name, num_vars):
+def test_normality(df, name, num_vars, alpha=0.001):
    
     # Create a DataFrame to store the results
     normality_results = pd.DataFrame(index=num_vars, columns=['Shapiro_Wilk_stat', 'Shapiro_Wilk_p', 'Log_Shapiro_Wilk_stat', 'Log_Shapiro_Wilk_p'])
@@ -198,12 +217,13 @@ def test_normality(df, name, num_vars):
         normality_results.loc[var, 'Log_Shapiro_Wilk_p'] = shapiro_p_log
         normality_results.loc[var, 'Log_Shapiro_Wilk_stat'] = shapiro_stat_log
 
-    
 
     # Save the results to a LaTeX table
-    df_to_latex(normality_results, f'{name}_normality_test.tex')
+    append_to_excel(stat_res_p, normality_results,  f'{name}_normality_results')
     
-    return None
+    log_vars = [col for col in normality_results.index if normality_results.loc[col, 'Log_Shapiro_Wilk_p'] > alpha]
+
+    return log_vars
 
 def fit_random_forest(df, name, log_vars, cat_vars, num_vars, target_vars):
     '''
@@ -264,11 +284,30 @@ def fit_random_forest(df, name, log_vars, cat_vars, num_vars, target_vars):
     # Return feature importances from the best model
     return gb.feature_importances_
 
+def immpute_vars(df,cat_vars, num_vars):
+    
+    df = df.copy().sort_values('Active_years')
 
-def summary_stats(df, name, target_vars, cat_vars, num_vars, unit_conv):
+    df[['EPS_mean', 'EPS_slope']] = df[['EPS_mean', 'EPS_slope']].fillna(df[['EPS_mean', 'EPS_slope']].mean())
+    # impute missing values using the sorted numerical values per active years 
+    df[num_vars] = df[num_vars].fillna(method='ffill')
 
+    df[cat_vars] = df[cat_vars].apply(lambda x: x.fillna(0))
+    return df
+
+
+def summary_stats(df, name,  cat_vars, num_vars, units):
+    # percentage of missing values per var relative to samples
+    missing = (df.isnull().mean().round(2) / len(df)) * 100
+    df_to_latex(missing, f'{name}_missing_values.tex')
+
+    df = immpute_vars(df, cat_vars, num_vars)
+    
     numeric_sum = df[num_vars].describe().round(2).T
 
+    numeric_sum['Unit'] = [units[col] for col in numeric_sum.index]
+    # unit should appear direchtly after index name
+    numeric_sum = numeric_sum[['Unit', 'count', 'mean', 'std', 'min', '25%', '50%', '75%', 'max']]
 
     cat_sum = pd.DataFrame()
     cat_sum['Count'] = df[cat_vars].sum()
@@ -278,37 +317,6 @@ def summary_stats(df, name, target_vars, cat_vars, num_vars, unit_conv):
     df_to_latex(cat_sum, f'{name}_categorical_summary.tex')
 
     return None
-
-
-def prep_dset(df):
-    # Drop unnecessary columns
-    df.drop(['geometry', 'id_data_source'], axis=1, inplace=True)
-    df.set_index('Prop_id', inplace=True)
-    # Drop columns where the sum of the columns is 0 
-    df = df.loc[:, (df.sum(axis=0) != 0)]
-
-    cat_vars = [col for col in df.columns if col.startswith('Primary') or col.startswith('Byprod')]
-    num_vars = [col for col in df.columns if col not in cat_vars]
-    
-    df = df.dropna(subset='Area_mine')
-
-    df['EPI'] = df['EPI'].fillna(df['EPI'].mean())
-
-    df[cat_vars] = df[cat_vars].astype(int)
-    df[num_vars] = df[num_vars].astype(float)
-
-    return df, cat_vars, num_vars
-
-
-def unit_renaming(log_col, unit_conv):
-    '''
-    Rename the columns of the DataFrame to include the units of the variables.
-    '''
-    for c in unit_conv.keys():
-        if c in log_col:
-            unit_conv[c] = f'log {unit_conv[c]}'
-
-    return unit_conv
 
 
 def cramers_v(confusion_matrix):
@@ -325,7 +333,7 @@ def cramers_v(confusion_matrix):
     kcorr = k - ((k - 1) ** 2) / (n - 1)
     return np.sqrt(phi2corr / min((kcorr - 1), (rcorr - 1))), p_val
 
-def corr(df, name, log_vars, cat_vars, num_vars):
+def corr_calc(df, name, log_vars, cat_vars, num_vars, units):
 
     """
     Calculate correlations for:
@@ -335,8 +343,23 @@ def corr(df, name, log_vars, cat_vars, num_vars):
     Includes p-values for significance testing, and returns all results in a single DataFrame.
     """
     # Transform numerical variables to log scale
+    units = units.copy()
+    df.drop(['geometry', 'Prop_id', 'id_data_source', 'COU', 'continent', 'iso3', 'Unnamed: 0'], axis=1, inplace=True)
+    
+    df = immpute_vars(df, cat_vars, num_vars)
+
+    log_vars = test_normality(df, name, num_vars)
+
     df[log_vars] = df[log_vars].apply(lambda x: np.log10(x.clip(lower=1e-10)))
 
+    df, num_vars = unit_rename(df, log_vars, num_vars, units)
+
+    #get binary columns that are zero
+    binary_cols = df.columns[(df.sum() == 0)]
+    
+    #remove these from cat_vars
+    cat_vars = [col for col in cat_vars if col not in binary_cols]
+    
     # Initialize a list to collect results
     results = []
 
@@ -356,60 +379,108 @@ def corr(df, name, log_vars, cat_vars, num_vars):
                 })
 
     # Categorical vs Numerical
-    for cat_var in cat_vars:
-        for num_var in num_vars:
-            corr, p_val = stats.pointbiserialr(df[var1], df[var2])
-            results.append({
+    for var1 in cat_vars:
+        for var2 in num_vars:
+            if var1 != var2:
+                corr, p_val = stats.pointbiserialr(df[var1].astype(int), df[var2])
+                results.append({
                     'Variable 1': var1,
                     'Variable 2': var2,
-                    'Type 1': 'categorical',
+                    'Type 1': 'binary',
                     'Type 2': 'numerical',
                     'Test_Type': 'Point Biserial',
                     'Correlation': corr,
                     'P-Value': p_val
                 })
-
-    # Categorical vs Categorical (Point Biserial Correlation)
-    for var1 in cat_vars:
-        for var2 in cat_vars:
-            if var1 != var2:
-                # Calculate point biserial correlation directly
-                corr, p_val = stats.pointbiserialr(df[var1], df[var2])
+                # Out of consistency the inverse is also included thi is in the case of num-num etc. already by definition included.
                 results.append({
-                    'Variable 1': var1,
-                    'Variable 2': var2,
-                    'Type 1': 'categorical',
-                    'Type 2': 'categorical',
+                    'Variable 1': var2,
+                    'Variable 2': var1,
+                    'Type 1': 'numerical',
+                    'Type 2': 'binary',
                     'Test_Type': 'Point Biserial',
                     'Correlation': corr,
                     'P-Value': p_val
                 })
 
+
+    # cat vs cat
+    for var1 in cat_vars:
+        for var2 in cat_vars:
+            if var1 != var2 and df[var1].nunique() == 2 and df[var2].nunique() == 2:
+                contingency = pd.crosstab(df[var1].astype(int), df[var2].astype(int))
+                chi2, p_val, _, _ = stats.chi2_contingency(contingency)
+                n = contingency.sum().sum()
+                phi = (chi2 / n) ** 0.5
+                results.append({
+                    'Variable 1': var1,
+                    'Variable 2': var2,
+                    'Type 1': 'binary',
+                    'Type 2': 'binary',
+                    'Test_Type': 'Phi Coefficient',
+                    'Correlation': phi,
+                    'P-Value': p_val
+                })
+
     # Convert results to a DataFrame
     results_df = pd.DataFrame(results)
-    
-    data_to_csv_int(results_df, f'{name}_correlation_results')
+
+    if name == 'tailings':
+        # print for tailings_production and concentrate_production all stat significant variables
+        stat_sig_tailings_var = results_df[(results_df['Variable 1'] == 'Tailings_production log t') & (results_df['P-Value'] < 0.05)]['Variable 2'].unique()
+        print(f'Tailings_production significant variables: {stat_sig_tailings_var}')
+
+        # print out only including the target var and the significant variables
+        res_tailings = results_df[(results_df['Variable 1'] == 'Tailings_production log t') & (results_df['P-Value'] < 0.05)]
+
+        stat_sig_concentrate_var = results_df[(results_df['Variable 1'] == 'Concentrate_production log t') & (results_df['P-Value'] < 0.05)]['Variable 2'].unique()
+        print(f'Concentrate_production significant variables: {stat_sig_concentrate_var}')
+
+    elif name == 'waste_rock':
+        # print for waste_rock_production and ore_processed_mass all stat significant variables
+        stat_sig_waste_rock_var = results_df[(results_df['Variable 1'] == 'Waste_rock_production log t') & (results_df['P-Value'] < 0.05)]['Variable 2'].unique()
+        print(f'Waste_rock_production significant variables: {stat_sig_waste_rock_var}')
+
+        stat_sig_ore_processed_var = results_df[(results_df['Variable 1'] == 'Ore_processed_mass log t') & (results_df['P-Value'] < 0.05)]['Variable 2'].unique()
+        print(f'Ore_processed_mass significant variables: {stat_sig_ore_processed_var}')
+
+    append_to_excel(stat_res_p, results_df, f'{name}_correlation_results')
 
     return results_df
 
-def vif(df, name, log_vars, target_vars):
+
+
+
+def vif(df, name, cat_vars, num_vars, target_vars, units):
     '''
     Calculate the Variance Inflation Factor (VIF) for all variables in the DataFrame. Extract also the pvalue
     H0: the r2 is not significantly different from 0
 
+    Lets only do it fro numerical variables
+
     '''
     # Transform numerical variables to log scale
-
+    
+    df.drop(['geometry', 'Prop_id', 'id_data_source', 'COU', 'continent', 'iso3', 'Unnamed: 0'], axis=1, inplace=True)
+    
+    df = immpute_vars(df, cat_vars, num_vars)
+    log_vars = test_normality(df, name, num_vars)
     df[log_vars] = df[log_vars].apply(np.log10)
+
+    
     df.drop(target_vars, axis=1, inplace=True)
 
+    num_vars = [col for col in num_vars if col not in target_vars]
+
+    df, num_vars = unit_rename(df, log_vars, num_vars, units)
+
     # calculate vif
-    vif_data = pd.DataFrame(index = df.columns)
-    vif_data["VIF"] = [variance_inflation_factor(df.values, i) for i in range(df.shape[1])]
+    vif_data = pd.DataFrame(index = df[num_vars].columns)
+    vif_data["VIF"] = [variance_inflation_factor(df[num_vars].values, i) for i in range(df[num_vars].shape[1])]
     vif_data = vif_data.sort_values(by='VIF', ascending=False)
 
     # Save to csv
-    data_to_csv_int(vif_data, f'{name}_vif_results')
+    append_to_excel(stat_res_p, vif_data, f'{name}_vif_results')
 
     return None
 
@@ -468,16 +539,171 @@ def pca(df, name, log_vars, num_vars, target_vars):
     return None
 
 
+def bin_network(df, cat_vars, num_vars, name):
+    # Impute missing values for categorical and numerical variables
+    df = immpute_vars(df, cat_vars, num_vars)
+
+    com_vars = [
+        'Primary_Chromium', 'Byprod_Chromium', 'Primary_Cobalt', 'Byprod_Cobalt', 
+        'Primary_Copper', 'Byprod_Copper', 'Primary_Crude Oil', 'Byprod_Crude Oil', 
+        'Primary_Gold', 'Byprod_Gold', 'Primary_Indium', 'Byprod_Indium', 
+        'Primary_Iron', 'Byprod_Iron', 'Primary_Lead', 'Byprod_Lead', 
+        'Primary_Manganese', 'Byprod_Manganese', 'Primary_Molybdenum', 
+        'Byprod_Molybdenum', 'Primary_Nickel', 'Byprod_Nickel', 'Primary_Palladium', 
+        'Byprod_Palladium', 'Primary_Platinum', 'Byprod_Platinum', 
+        'Primary_Rhenium', 'Byprod_Rhenium', 'Primary_Silver', 'Byprod_Silver', 
+        'Primary_Tin', 'Byprod_Tin', 'Primary_Titanium', 'Byprod_Titanium', 
+        'Primary_Tungsten', 'Byprod_Tungsten', 'Primary_Uranium', 'Byprod_Uranium', 
+        'Primary_Vanadium', 'Byprod_Vanadium', 'Primary_Zinc', 'Byprod_Zinc'
+    ]
+    
+    # Convert selected columns to binary format (0 or 1)
+    df_b = df[com_vars].astype(int)
+
+    # Filter columns where the sum of non-zero values is greater than zero
+    df_b = df_b.loc[:, (df_b.sum(axis=0) != 0)]
+
+    # Compute the co-occurrence matrix
+    co_occurrence_matrix = df_b.T.dot(df_b)
+
+    # Step 2: Build a NetworkX graph
+    G = nx.Graph()
+
+    # Add nodes from the columns of df_b (commodities)
+    G.add_nodes_from(df_b.columns)
+
+    # Define a dictionary to assign colors to primary and byproduct commodities
+    color_map = {}
+    for col in df_b.columns:
+        if 'Primary' in col:
+            color_map[col] = 'lightblue'  # Color for primary commodities
+        elif 'Byprod' in col:
+            color_map[col] = 'lightgreen'  # Color for byproduct commodities
+
+    # Add edges based on co-occurrence matrix
+    for i in range(len(co_occurrence_matrix.columns)):
+        for j in range(i, len(co_occurrence_matrix.columns)):
+            weight = co_occurrence_matrix.iloc[i, j]
+            # Skip self-loops (i.e., no edge where i == j) and edges with zero weight
+            if weight > 0 and i != j:
+                G.add_edge(co_occurrence_matrix.columns[i], co_occurrence_matrix.columns[j], weight=weight)
+
+   
+
+
+    # Step 3: Plot the network
+    pos =  nx.circular_layout(G) # Positioning the nodes
+    plt.figure(figsize=(10, 8))
+
+    # Extract edge weights
+    edges = G.edges(data=True)
+    weights = [edge[2]['weight'] for edge in edges]  # Edge weights for visualization
+
+     # min max scale weights
+    weights = StandardScaler().fit_transform(np.array(weights).reshape(-1, 1)).flatten()
+
+    # Draw nodes and edges with the color map for nodes
+    node_colors = [color_map[node] for node in G.nodes()]
+    
+    nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=100)
+    nx.draw_networkx_labels(G, pos, font_size=6)
+    nx.draw_networkx_edges(G, pos, width=weights, alpha=0.8, edge_color='gray')
+
+    
+    plt.axis('off')  # Hide axes
+    plt.tight_layout()
+
+    # Save the figure
+    save_fig(f'{name}_network_colored.png')
+
+    # Show the plot
+    plt.show()
+
+    return None
+
+def sample_characteristics(df, name, cat_vars, num_vars, target_vars, units):
+    '''
+    Output numer of samples, and number of primary copper nickel and zinkc mines
+
+
+    
+    '''
+    return None
+
+def spatial_plot(df, target_vars, cat_vars, num_vars, wb):
+
+
+    df = immpute_vars(df, cat_vars, num_vars)
+    # transform to degree crs
+
+    df = df.to_crs('EPSG:4326')
+    wb = wb.to_crs('EPSG:4326')
+
+
+    for t in target_vars:
+
+        fig, ax = plt.subplots(figsize=(14, 7))
+
+        df[t] = df[t].apply(np.log10)
+
+        df.rename(columns={f'{t}': f'{t} log t', 'Area_mine': 'Area_mine km2'} , inplace=True)
+
+        # Plot the target variable as a choropleth (continuous data)
+        sns.scatterplot(data=df,  x=df.geometry.x, y=df.geometry.y, ax=ax, size = 'Area_mine km2',  hue=f'{t} log t', palette='viridis', legend=True, edgecolor=None, sizes=(10, 200))      
+
+        # plot the world boundaries wiht grey background and black borders
+        wb.boundary.plot(ax=ax, color='black', linewidth=0.4)
+
+        # get legend into left lower corner
+        ax.legend(loc='lower left', bbox_to_anchor=(0, 0), frameon=False)
+
+        ax.set_axis_off()
+        # Display the plot with the legend
+        plt.tight_layout()
+    
+        save_fig(f'{t}_spatial_plot.png')
+        plt.close()
+
+        
+    return None
+
 
 def main():
 
-    unit_conv = {'Active_years':'y', 'Concentrate_production':'t', 'Tailings_production': 't',
+    cat_vars =  ['Primary_Chromium',
+       'Byprod_Chromium', 'Primary_Cobalt', 'Byprod_Cobalt', 'Primary_Copper',
+       'Byprod_Copper', 'Primary_Crude Oil', 'Byprod_Crude Oil',
+       'Primary_Gold', 'Byprod_Gold', 'Primary_Indium', 'Byprod_Indium',
+       'Primary_Iron', 'Byprod_Iron', 'Primary_Lead', 'Byprod_Lead',
+       'Primary_Manganese', 'Byprod_Manganese', 'Primary_Molybdenum',
+       'Byprod_Molybdenum', 'Primary_Nickel', 'Byprod_Nickel',
+       'Primary_Palladium', 'Byprod_Palladium', 'Primary_Platinum',
+       'Byprod_Platinum', 'Primary_Rhenium', 'Byprod_Rhenium',
+       'Primary_Silver', 'Byprod_Silver', 'Primary_Tin', 'Byprod_Tin',
+       'Primary_Titanium', 'Byprod_Titanium', 'Primary_Tungsten',
+       'Byprod_Tungsten', 'Primary_Uranium', 'Byprod_Uranium',
+       'Primary_Vanadium', 'Byprod_Vanadium', 'Primary_Zinc', 'Byprod_Zinc',
+       'ev', 'mt', 'nd', 'pa', 'pb', 'pi', 'py', 'sc', 'sm',
+       'ss', 'su', 'va', 'vb', 'vi', 'wb']
+    
+    num_vars = ['Active_years',
+       'Polygon_count', 'Weight', 'Area_mine', 'Area_mine_weighted',
+       'Convex_hull_area', 'Convex_hull_area_weighted',
+       'Convex_hull_perimeter', 'Convex_hull_perimeter_weighted',
+       'Compactness', 'Compactness_weighted', 'EPS_mean', 'EPS_slope']
+    
+
+    units = {'Active_years':'years', 'Concentrate_production':'t', 'Tailings_production': 't',
         'Polygon_count': 'count', 'Area_mine': 'km2', 'Area_mine_weighted':'km2',
         'Convex_hull_area': 'km2', 'Convex_hull_area_weighted': 'km2',
-            'Convex_hull_perimeter': 'km2', 'Convex_hull_perimeter_weighted': 'km2',
+            'Convex_hull_perimeter': 'km', 'Convex_hull_perimeter_weighted': 'km',
             'Compactness': 'ratio', 'Compactness_weighted': 'ratio', 'Weight': 'ratio',
-            'Waste_rock_production': 't', 'Ore_processed_mass': 't', 'Count': 'count', }
-    
+            'Waste_rock_production': 't', 'Ore_processed_mass': 't', 'Count': 'count', 'EPS_mean':'score', 'EPS_slope':'score' }
+
+
+    world_bounds_p = r'data\world_bound\world-administrative-boundaries.shp'
+
+    wb = gpd.read_file(world_bounds_p)
 
     for name in ['tailings', 'waste_rock']:
         
@@ -486,22 +712,24 @@ def main():
             log_vars = ['Active_years', 'Concentrate_production', 'Tailings_production', 'Convex_hull_area', 'Convex_hull_perimeter', 'Convex_hull_perimeter_weighted']
             target_vars = ['Tailings_production', 'Concentrate_production']
 
-            # unit_conv is in log var add log to the unit
-            unit_conv = unit_renaming(log_vars, unit_conv)
+            feature_selection = ['Area_mine', 'Byprod_gold' ]
 
+            # unit_conv is in log var add log to the unit
+            #unit_conv = unit_renaming(log_vars, unit_conv)
+            
 
         if name == 'waste_rock':
             path = get_path('waste_rock.gpkg')
             log_vars = ['Active_years', 'Ore_processed_mass', 'Polygon_count', 'Weight', 'Area_mine', 'Area_mine_weighted','Convex_hull_area','Convex_hull_area_weighted' ,'Convex_hull_perimeter', 'Convex_hull_perimeter_weighted']
             target_vars = ['Waste_rock_production', 'Ore_processed_mass']
-            unit_conv = unit_renaming(log_vars, unit_conv)
-                   
-        
-        sample = gpd.read_file(path)
-        sample, cat_vars, num_vars = prep_dset(sample)
-        summary_stats(sample, name, target_vars, cat_vars, num_vars, unit_conv)
-    
+            #unit_conv = unit_renaming(log_vars, unit_conv)
+                    
+        num_vars_extend = num_vars + target_vars
 
+        
+
+        sample = gpd.read_file(path)
+        spatial_plot(sample, target_vars, cat_vars, num_vars, wb)
     return None
 
 

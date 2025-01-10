@@ -1,5 +1,7 @@
-\data
+\data/* 
+!data/variable_description.xlsx
 \fig
 \tab
 \orga
 \__pycache__
+

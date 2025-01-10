@@ -6,7 +6,9 @@ import os
 import numpy as np
 from functools import reduce
 import re
+import logging
 
+log = logging.basicConfig(level=logging.INFO)
 
 def get_data(folder_name):
     """
@@ -87,7 +89,7 @@ def get_data(folder_name):
                     site_data = col_trans(site_data, id_col_index)
 
                     collect.append(init_conv_nan_removal(site_data, var_types, id_cols, rename_vars))
-
+                    log.info(f'Finished processing {f_} in {f}')
                 merged = merging_of_dfs(collect, id_cols)
                 merged['Commodity'] = commodity
                 conc.append(merged)
@@ -98,7 +100,7 @@ def get_data(folder_name):
    
 def init_conv_nan_removal(site_data, var_types, id_cols, rename_vars, first=None): 
     
-    if first is not 0:
+    if first != 0:
         site_data = site_data.drop('PROP_NAME', axis=1, errors='ignore')
 
     dtype_converted = dtype_conversion(site_data, var_types)
@@ -112,6 +114,8 @@ def init_conv_nan_removal(site_data, var_types, id_cols, rename_vars, first=None
         
     
     non_nan.set_index(id_cols, inplace=True)
+
+
 
     return non_nan
 
@@ -203,7 +207,7 @@ def dtype_conversion(df, type_dict):
 
         dtype = type_dict.get(c, None)
 
-        assert dtype is not None, f'The data type could not be found for column: {c}'
+        assert dtype != None, f'The data type could not be found for column: {c}'
 
         if dtype == 'date':
             to_str = df[c].astype('str')

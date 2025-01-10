@@ -43,7 +43,7 @@ def save_fig(name):
 
     return None
 
-def save_fig_plotnine(plot, name, w=8, h=6):
+def save_fig_plotnine(plot, name, w=8, h=6, dpi=300):
     base_folder = 'fig'
     # Get the calling script’s filename
     calling_script = inspect.stack()[1].filename
@@ -55,7 +55,7 @@ def save_fig_plotnine(plot, name, w=8, h=6):
 
     file_path = os.path.join(path, name)
 
-    plot.save(file_path, width=w, height=h)
+    plot.save(file_path, width=w, height=h, dpi=dpi)
 
     return None
 
@@ -130,7 +130,7 @@ def data_to_csv_int(data, name):
 def append_to_excel(filename, df, sheet_name):
     with pd.ExcelWriter(filename, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
         # Save the new sheet while keeping the existing ones
-        df.to_excel(writer, sheet_name=sheet_name, index=False)
+        df.to_excel(writer, sheet_name=sheet_name, index=True)
 
 
 

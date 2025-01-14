@@ -251,12 +251,6 @@ def main():
 
     area_com = get_coms_to_area(poly_path, cluster_path, area_path)
 
-    mod_res = pd.read_json(mod_res_p)
-    targets_fit = pd.read_csv(targets_fit_p)
-
-    merged = pd.merge(mod_res, targets_fit[['Prop_id', 'Start_up_year']].drop_duplicates(), on=['Prop_id'], how='left')
-    
-    cum = get_cumsum(merged)
 
     li = pd.read_csv(li_path)
 
@@ -264,13 +258,31 @@ def main():
 
     merge_li = area_com_trans.merge(li, on='id_data_source', how='left')
 
+    eps = get_eps_per_mine()
+
+    merge_eps = merge_li.merge(eps, on='id_data_source', how='left')
+
+    df_to_gpkg(merge_eps, 'features_all_mines', crs = 'EPSG:6933')
+        
+    mod_res = pd.read_json(mod_res_p)
+
+
+
+
+
+    targets_fit = pd.read_csv(targets_fit_p)
+
+    merged = pd.merge(mod_res, targets_fit[['Prop_id', 'Start_up_year']].drop_duplicates(), on=['Prop_id'], how='left')
+    
     # harmonize id type 
+
+    cum = get_cumsum(merged)
     cum['Prop_id'] = cum['Prop_id'].astype(str)
     merge_li['id_data_source'] = merge_li['id_data_source'].astype(str)
 
     merge_cum = cum.merge(merge_li, left_on='Prop_id', right_on='id_data_source', how='left')
 
-    eps = get_eps_per_mine()
+    
 
     merge_epi = merge_cum.merge(eps, on='id_data_source', how='left')
     

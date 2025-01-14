@@ -293,6 +293,8 @@ def immpute_vars(df,cat_vars, num_vars):
     df[num_vars] = df[num_vars].fillna(method='ffill')
 
     df[cat_vars] = df[cat_vars].apply(lambda x: x.fillna(0))
+
+    df.dropna(subset='geometry', inplace=True)
     return df
 
 
@@ -447,8 +449,6 @@ def corr_calc(df, name, log_vars, cat_vars, num_vars, units):
     append_to_excel(stat_res_p, results_df, f'{name}_correlation_results')
 
     return results_df
-
-
 
 
 def vif(df, name, cat_vars, num_vars, target_vars, units):
@@ -668,8 +668,12 @@ def spatial_plot(df, target_vars, cat_vars, num_vars, wb):
     return None
 
 
+
+
+
 def main():
 
+    
     cat_vars =  ['Primary_Chromium',
        'Byprod_Chromium', 'Primary_Cobalt', 'Byprod_Cobalt', 'Primary_Copper',
        'Byprod_Copper', 'Primary_Crude Oil', 'Byprod_Crude Oil',
@@ -691,7 +695,6 @@ def main():
        'Convex_hull_area', 'Convex_hull_area_weighted',
        'Convex_hull_perimeter', 'Convex_hull_perimeter_weighted',
        'Compactness', 'Compactness_weighted', 'EPS_mean', 'EPS_slope']
-    
 
     units = {'Active_years':'years', 'Concentrate_production':'t', 'Tailings_production': 't',
         'Polygon_count': 'count', 'Area_mine': 'km2', 'Area_mine_weighted':'km2',

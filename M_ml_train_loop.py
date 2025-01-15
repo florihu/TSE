@@ -159,7 +159,7 @@ def hype_loop(df):
         return make_pipeline(MinMaxScaler())
     
 
-    models = { 'RandomForestRegressor': RandomForestRegressor(), 'GradientBoostingRegressor': GradientBoostingRegressor()}
+    models = {  'ElasticNet': ElasticNet(), 'Lasso': Lasso(),  'MLPRegressor': MLPRegressor(), 'Ridge': Ridge(), 'SVR': SVR(),   'RandomForestRegressor': RandomForestRegressor(), 'GradientBoostingRegressor': GradientBoostingRegressor()}
     
     
     transfo = {'Tailings_production': ColumnTransformer([('Tailings_production', log_pipeline(), ['Tailings_production']), 
@@ -169,10 +169,58 @@ def hype_loop(df):
                                                             ('Area_mine', log_pipeline(), ['Area_mine'])  ], remainder=no_log_pipeline()) 
                 }
     
-    param_dist = {'RandomForestRegressor': {'n_estimators': [10, 50, 100, 200, 300, 400, 500], 'max_depth': [5, 10, 15, 20, 25, 30, 35, 40, 45, 50], 'min_samples_split': [2, 5, 10, 15, 20], 'min_samples_leaf': [1, 2, 4, 8, 16, 32, 64], 'max_features': ['auto', 'sqrt', 'log2'], 'bootstrap': [True, False]},
-                    'GradientBoostingRegressor': {'n_estimators': [10, 50, 100, 200, 300, 400, 500], 'learning_rate': [0.001, 0.01, 0.1, 0.2, 0.3], 'max_depth': [3, 4, 5, 6, 7, 8, 9, 10], 'min_samples_split': [2, 5, 10, 15, 20], 'min_samples_leaf': [1, 2, 4, 8, 16, 32, 64], 'max_features': ['auto', 'sqrt', 'log2']}}
+    numer_of_samples = {'ElasticNet': 100, 'Lasso': 100, 'MLPRegressor': 300, 'Ridge': 100, 'SVR': 200, 'RandomForestRegressor': 300, 'GradientBoostingRegressor': 300}
+    
+    # Parameter distributions
+    param_dist = {
+        'ElasticNet': {
+            'alpha': [0.01, 0.1, 1.0, 10.0, 100.0],
+            'l1_ratio': [0.1, 0.3, 0.5, 0.7, 0.9],
+            'max_iter': [100, 500, 1000, 5000]
+        },
+        'Lasso': {
+            'alpha': [0.01, 0.1, 1.0, 10.0, 100.0],
+            'max_iter': [100, 500, 1000, 5000]
+        },
+        
+        'MLPRegressor': {
+            'hidden_layer_sizes': [(50,), (100,), (50, 50), (100, 100)],
+            'activation': ['identity', 'logistic', 'tanh', 'relu'],
+            'solver': ['lbfgs', 'sgd', 'adam'],
+            'alpha': [0.0001, 0.001, 0.01, 0.1],
+            'learning_rate': ['constant', 'invscaling', 'adaptive'],
+            'max_iter': [200, 500, 1000]
+        },
+        'Ridge': {
+            'alpha': [0.01, 0.1, 1.0, 10.0, 100.0],
+            'solver': ['auto', 'svd', 'cholesky', 'lsqr', 'saga']
+        },
+        'SVR': {
+            'C': [0.1, 1, 10, 100, 1000],
+            'kernel': ['linear', 'poly', 'rbf', 'sigmoid'],
+            'degree': [2, 3, 4, 5],
+            'epsilon': [0.001, 0.01, 0.1, 0.5, 1.0],
+            'gamma': ['scale', 'auto']
+        },
+        'RandomForestRegressor': {
+            'n_estimators': [10, 50, 100, 200, 300, 400, 500],
+            'max_depth': [5, 10, 15, 20, 25, 30, 35, 40, 45, 50],
+            'min_samples_split': [2, 5, 10, 15, 20],
+            'min_samples_leaf': [1, 2, 4, 8, 16, 32, 64],
+            'max_features': ['auto', 'sqrt', 'log2'],
+            'bootstrap': [True, False]
+        },
+        'GradientBoostingRegressor': {
+            'n_estimators': [10, 50, 100, 200, 300, 400, 500],
+            'learning_rate': [0.001, 0.01, 0.1, 0.2, 0.3],
+            'max_depth': [3, 4, 5, 6, 7, 8, 9, 10],
+            'min_samples_split': [2, 5, 10, 15, 20],
+            'min_samples_leaf': [1, 2, 4, 8, 16, 32, 64],
+            'max_features': ['auto', 'sqrt', 'log2']
+        }
+    }
 
-    res_df = pd.DataFrame(columns=['Model', 'Variable', 'Score'])
+    res_df = pd.DataFrame(columns=['Model', 'Variable', 'R2_mean_train', 'R2_mean_test', 'R2_std_train', 'R2_std_test'])
 
     for target_var, all_vars in var_selection.items():
 
@@ -193,8 +241,8 @@ def hype_loop(df):
             random_search = RandomizedSearchCV(
                 estimator=model,
                 param_distributions=param_dist[model_name],
-                n_iter=100,
-                scoring='explained_variance',
+                n_iter=numer_of_samples[model_name],
+                scoring='r2',
                 n_jobs=-1,
                 cv=strat_kflold.split(X, df['Combination']),  # Pass stratified groups here
                 random_state=42,
@@ -204,18 +252,20 @@ def hype_loop(df):
             # Fit RandomizedSearchCV
             random_search.fit(X, y)
 
-            score = random_search.best_score_
+            # get r2 scores for the best estimator
+            r2_mean_train = random_search.cv_results_['mean_train_score'][random_search.best_index_]
+            r2_mean_test = random_search.cv_results_['mean_test_score'][random_search.best_index_]
+            r2_std_train = random_search.cv_results_['std_train_score'][random_search.best_index_]
+            r2_std_test = random_search.cv_results_['std_test_score'][random_search.best_index_]
+
+
 
             # save best estimater to path
             model_path = f'models/{model_name}_{target_var}.pkl'
             joblib.dump(random_search.best_estimator_, model_path)
 
 
-            res_df = pd.concat([res_df, pd.DataFrame([{
-                                    'Model': model_name, 
-                                    'Variable': target_var, 
-                                    'Score': score,
-                                }])], ignore_index=True)
+            res_df = pd.concat([res_df, pd.DataFrame([{ 'Model': model_name, 'Variable': target_var, 'R2_mean_train': r2_mean_train, 'R2_mean_test': r2_mean_test, 'R2_std_train': r2_std_train, 'R2_std_test': r2_std_test}])], ignore_index=True)
         
     data_to_csv_int(res_df, 'ml_hype_opt_results')
 
@@ -300,7 +350,7 @@ def train_loop(df):
             
             count += 1
     
-    data_to_csv_int(res_df, 'ml_hype_opt_results')
+    data_to_csv_int(res_df, 'ml_train_loop_results')
 
     return res_df
                 
@@ -415,9 +465,7 @@ def main():
     tailings = gpd.read_file(tailings_p)
     tail_imp = immpute_vars(tailings, cat_vars, num_vars)
 
-    res = train_loop(tail_imp)
-
-    plot_results(res, repfig=True)
+    res = hype_loop(tail_imp)
 
 
 

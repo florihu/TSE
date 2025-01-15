@@ -221,9 +221,104 @@ def hype_loop(df):
 
     return res_df
 
+
+def train_loop(df):
+
+
+    df = geography_similarity(df, wb=None, make_plot=False)
+
+    var_selection = {'Tailings_production': ['Tailings_production', 'Area_mine', 'Weight', 'Compactness', 'Primary_Copper', 'Primary_Nickel', 'Primary_Silver', 'Primary_Zinc', 'va', 'max_similarity'],
+                     'Concentrate_production': ['Concentrate_production','Area_mine', 'Compactness', 'EPS_mean' , 'Primary_Copper', 'Primary_Silver',  'Primary_Zinc', 'pb', 'va', 'py', 'max_similarity'],
+                     }
+    
+
+    # Feature for stratisfied sampling
+    df['Copper'] = df['Primary_Copper'] + df['Byprod_Copper']
+    df['Zinc'] = df['Primary_Zinc'] + df['Byprod_Zinc']
+    df['Nickel'] = df['Primary_Nickel'] + df['Byprod_Nickel']
+    production_features = ['Copper', 'Zinc', 'Nickel']
+    
+    df[production_features] = df[production_features].astype(int)
+    df['Combination'] = df[production_features].astype(str).agg('-'.join, axis=1)
+    
+    def log_pipeline():
+        # standard scale plus log
+        return make_pipeline(FunctionTransformer(np.log1p), MinMaxScaler())
+    
+    def no_log_pipeline():
+        # standard scale plus log
+        return make_pipeline(MinMaxScaler())
+    
+
+    models = {  'ElasticNet': ElasticNet(), 'Lasso': Lasso(), 'LinearRegression': LinearRegression(), 'MLPRegressor': MLPRegressor(), 'Ridge': Ridge(), 'SVR': SVR(),   'RandomForestRegressor': RandomForestRegressor(), 'GradientBoostingRegressor': GradientBoostingRegressor()}
+    
+    
+    transfo = {'Tailings_production': ColumnTransformer([('Tailings_production', log_pipeline(), ['Tailings_production']), 
+                                                         ('Area_mine', log_pipeline(), ['Area_mine'])]
+                                                         , remainder=no_log_pipeline()), 
+                'Concentrate_production': ColumnTransformer([('Concentrate_production', log_pipeline(), ['Concentrate_production']), 
+                                                            ('Area_mine', log_pipeline(), ['Area_mine'])  ], remainder=no_log_pipeline()) 
+                }
+    
+    
+    res_df = pd.DataFrame(columns=['Model', 'Variable', 'Fold',  'R2_train', 'R2_test', 'RMSE_train', 'RMSE_test', 'MAE_train', 'MAE_test', 'CV_train', 'CV_test'])
+
+    for target_var, all_vars in var_selection.items():
+
+        df_trans = df[all_vars]
+        df_trans = pd.DataFrame(transfo[target_var].fit_transform(df_trans), columns=all_vars)
+
+
+        y = df_trans[target_var]
+        X = df_trans.drop(target_var, axis=1)
+        X = pd.DataFrame(PCA(n_components=0.95).fit_transform(X))
+        
+
+        for train_idx, test_idx  in  StratifiedKFold(n_splits=5, shuffle=True, random_state=42).split(X.index, df['Combination']):
+            
+            count = 0
+            
+            for model_name, model in tqdm(models.items()):
+            
+                X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+                y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+
+                model.fit(X_train, y_train)
+                y_train_pred = model.predict(X_train)
+                y_test_pred = model.predict(X_test)
+
+                r2_train = model.score(X_train, y_train)
+                r2_test = model.score(X_test, y_test)
+                rmse_train = np.sqrt(np.mean((y_train - y_train_pred) ** 2))
+                rmse_test = np.sqrt(np.mean((y_test - y_test_pred) ** 2))
+                mae_train = np.mean(np.abs(y_train - y_train_pred))
+                mae_test = np.mean(np.abs(y_test - y_test_pred))
+                cv_train = rmse_train / np.mean(y_train)
+                cv_test = rmse_test / np.mean(y_test)
+
+                res_df = pd.concat([res_df, pd.DataFrame([{ 'Model': model_name, 'Variable': target_var, 'Fold':count,'R2_train': r2_train, 'R2_test': r2_test, 'RMSE_train': rmse_train, 'RMSE_test': rmse_test, 'MAE_train': mae_train, 'MAE_test': mae_test, 'CV_train': cv_train, 'CV_test': cv_test}])], ignore_index=True)
+            
+            count += 1
+    
+    data_to_csv_int(res_df, 'ml_hype_opt_results')
+
+    return res_df
                 
-def plot_results(df):
+def plot_results(df, repfig = True):
     # Melt the DataFrame
+
+    model_order = [
+        'ElasticNet', 'Lasso', 'LinearRegression', 'Ridge', 'MLPRegressor', 
+        'SVR', 'RandomForestRegressor', 'GradientBoostingRegressor'
+    ]
+
+
+
+    # Ensure the 'Model' column is ordered
+    df['Model'] = pd.Categorical(df['Model'], categories=model_order, ordered=True)
+
+
+
     melt = df.melt(
         id_vars=['Model', 'Variable', 'Fold'], 
         value_vars=['R2_test', 'R2_train', 'RMSE_train', 'RMSE_test', 
@@ -232,27 +327,50 @@ def plot_results(df):
         value_name='Value'
     )
 
+
    
     # Split 'Metric' into 'Metric_Type' and 'Data_Split'
     melt[['Metric_Type', 'Data_Split']] = melt['Metric'].str.extract(r'(\w+)_(train|test)')
     
+    split_order = ['train', 'test']
+
+    # Ensure the 'Data_Split' column is ordered
+    melt['Data_Split'] = pd.Categorical(melt['Data_Split'], categories=split_order, ordered=True)
+
+    # color for train and test
+    color_dict = {'train': '#7570b3', 'test': '#d95f02'}
+
+
     for v in ['Concentrate_production', 'Tailings_production']:
+        
+        if repfig:
+        # r2 and CV only
+            melt = melt[melt['Metric_Type'].isin(['R2', 'CV'])]
+            fig_name = f'model_performance_{v}_repfig.png'
+        else:
+            fig_name = f'model_performance_{v}.png'
+        
         melt_v = melt[melt['Variable'] == v]
+
         
         # Create a facet plot for each metric, coloring by 'Data_Split'
         p = (ggplot(melt_v, aes(x='Model', y='Value', color='Data_Split')) 
              + geom_boxplot() 
-             + facet_wrap('Metric_Type', scales='free') 
+             + facet_wrap('Metric_Type', scales='free_y') 
              + labs(x='Model', y='Value')
             + theme_minimal()
              + theme(
-                 axis_text_x=element_text(rotation=45, hjust=1, vjust=1, size=8),
-                 figure_size=(12, 8)
+                 axis_text_x=element_text(rotation=45, hjust=1, vjust=1, size=10),
+                 figure_size=(12, 6)
              )
         )
 
+        #use color_dict
+        p += scale_color_manual(values=color_dict)
+
+
         # Save the plot
-        save_fig_plotnine(p, f'model_performance_{v}.png')
+        save_fig_plotnine(p, fig_name, dpi=800)
 
 
 
@@ -297,9 +415,9 @@ def main():
     tailings = gpd.read_file(tailings_p)
     tail_imp = immpute_vars(tailings, cat_vars, num_vars)
 
-    res = hype_loop(tail_imp)
+    res = train_loop(tail_imp)
 
-    plot_results(res)
+    plot_results(res, repfig=True)
 
 
 

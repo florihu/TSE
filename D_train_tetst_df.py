@@ -65,7 +65,7 @@ def get_cumsum(df):
     # Return the final pivot table
     return cum_pivot
 
-def com_col_trans(df, threshold=0, com_path = r'data\variable_description.xlsx'):
+def com_col_trans(df, threshold=0, do_all_coms = False,  com_path = r'data\variable_description.xlsx'):
 
 
     rel_com = pd.read_excel(com_path, sheet_name='Byproduct_conc')['Com_names_sp'].tolist()
@@ -86,6 +86,10 @@ def com_col_trans(df, threshold=0, com_path = r'data\variable_description.xlsx')
     # assert all rel materials are in material dummies
     assert all([com in material_dummies.columns for com in rel_com]), 'Not all relevant commodities are in the material dummies'
 
+    if do_all_coms:
+        rel_com = material_dummies.columns.to_list()
+
+        rel_com.remove('Not relevant')
 
     # Create primary and secondary columns for each material
     for material in tqdm(rel_com):
@@ -248,13 +252,13 @@ def main():
     area_path = r'data\int\D_land_map\allocated_area_union_geom.gpkg'
     cluster_path = r'data\dcrm_cluster_data\dcrm_cluster_data\cluster_points_concordance.csv'
     
-
+    all_coms = True
     area_com = get_coms_to_area(poly_path, cluster_path, area_path)
 
 
     li = pd.read_csv(li_path)
 
-    area_com_trans = com_col_trans(area_com)
+    area_com_trans = com_col_trans(area_com, do_all_coms=all_coms)
 
     merge_li = area_com_trans.merge(li, on='id_data_source', how='left')
 
@@ -262,7 +266,8 @@ def main():
 
     merge_eps = merge_li.merge(eps, on='id_data_source', how='left')
 
-    df_to_gpkg(merge_eps, 'features_all_mines', crs = 'EPSG:6933')
+    if all_coms:
+        df_to_gpkg(merge_eps, 'features_all_mines_all_coms', crs = 'EPSG:6933')
         
     mod_res = pd.read_json(mod_res_p)
 

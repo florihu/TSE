@@ -43,7 +43,7 @@ def save_fig(name):
 
     return None
 
-def save_fig_plotnine(plot, name, w=8, h=6, dpi=300):
+def save_fig_plotnine(plot, name, w=8, h=6, dpi=600):
     base_folder = 'fig'
     # Get the calling script’s filename
     calling_script = inspect.stack()[1].filename

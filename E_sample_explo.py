@@ -588,10 +588,24 @@ def bin_network(df, cat_vars, num_vars, name):
             if weight > 0 and i != j:
                 G.add_edge(co_occurrence_matrix.columns[i], co_occurrence_matrix.columns[j], weight=weight)
 
-   
+
+    # Plot the network
+    plot_network(G, name)
+
+    return None
 
 
-    # Step 3: Plot the network
+def plot_network(G, name):
+
+
+    # Define a dictionary to assign colors to primary and byproduct commodities
+    color_map = {}
+    for col in G.nodes():
+        if 'Primary' in col:
+            color_map[col] = 'lightblue'  # Color for primary commodities
+        elif 'Byprod' in col:
+            color_map[col] = 'lightgreen'  # Color for byproduct commodities
+
     pos =  nx.circular_layout(G) # Positioning the nodes
     plt.figure(figsize=(10, 8))
 
@@ -619,7 +633,6 @@ def bin_network(df, cat_vars, num_vars, name):
     # Show the plot
     plt.show()
 
-    return None
 
 def sample_characteristics(df, name, cat_vars, num_vars, target_vars, units):
     '''

@@ -21,16 +21,20 @@ def model_analytics_hist(data, v):
     if v == 'RMSE':
         data[v] = data[v] / 10**6 # convert to Mt
 
+    color_dict = {'femp': '#e08214', 'hubbert': '#542788'}
+
     # Base plot setup
     plot = (
         ggplot(data, aes(x=v, fill='Model'))
-        + geom_histogram(bins=20, alpha=0.8, position="identity")
+        + geom_histogram(bins=20, alpha=0.7, position="identity")
         + facet_wrap('~Target_var', nrow=2, scales='free_x')
         + labs(x=v, y='Frequency')
         + theme_minimal()
-        + theme(subplots_adjust={'wspace': 0.25, 'hspace': 0.25})
-        + scale_fill_brewer(type='qual', palette='Set2')
+        + theme(subplots_adjust={'wspace': 0.3, 'hspace': 0.3}, text=element_text(size=14), legend_position='bottom')
+        + scale_fill_manual(values=color_dict)
         )
+
+
     
        
     if v == 'RMSE':
@@ -39,7 +43,7 @@ def model_analytics_hist(data, v):
     
 
     # Save and draw the plot
-    save_fig_plotnine(plot, f'{v}_prodmod_facet_by_model.png')
+    save_fig_plotnine(plot, f'{v}_prodmod_facet_by_model.png', w= 14, h=10)
     
     return None
 
@@ -366,5 +370,5 @@ if __name__ == '__main__':
 
     #merge = rec.merge(res_trans[['Prop_id', 'Target_var', 'Model', 'Class']], on=['Prop_id', 'Target_var', 'Model'], how='left')
 
-    res_cum_model = identify_cum_model(modelres, sig)
+    model_analytics_hist(modelres, 'COV')
    

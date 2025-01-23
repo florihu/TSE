@@ -9,15 +9,17 @@ import pandas as pd
 import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 import geopandas as gpd
 import seaborn as sns
 from plotnine import *  
 # Create a dictionary mapping nodes to their self-loop weights, using a defaultdict to avoid key errors
 from collections import defaultdict
+from pyvis.network import Network
 
 from util import save_fig, save_fig_plotnine, data_to_csv_int
 from E_sample_explo import plot_network
+
 
 
 def generate_network(df):
@@ -98,6 +100,8 @@ def calculate_weighted_degree_per_commodity(G):
     # Save the DataFrame to a csv file
     data_to_csv_int(df, 'network_stats_per_commodity')
 
+    df.reset_index(inplace = True)
+    df.rename(columns = {'index': 'Commodity'}, inplace = True)
     return df
 
 def degree_distribution(G):
@@ -148,19 +152,249 @@ def plot_network_properties(df):
 
     return None
 
+def interactive_network(G):
+    def convert_nx_graph_for_pyvis(graph):
+        # Convert nodes
+        for node, data in graph.nodes(data=True):
+            for key, value in data.items():
+                if isinstance(value, (np.int64, np.int32)):
+                    graph.nodes[node][key] = int(value)
+        
+        # Convert edges
+        for u, v, data in graph.edges(data=True):
+            for key, value in data.items():
+                if isinstance(value, (np.int64, np.int32)):
+                    graph.edges[u, v][key] = int(value)
 
-def interactive_network(G)
+        return graph
+
+    # Convert the graph before passing it to PyVis
+    G = convert_nx_graph_for_pyvis(G)
+
+    # Calculate node degrees and add them as attribute
+    node_degrees = dict(G.degree(weight='weight'))
+    nx.set_node_attributes(G, node_degrees, name="Weighted_degree")
+
+    # Create the PyVis network object
+    nt = Network(notebook=False, height="750px", width="100%", bgcolor="#222222", font_color="white", select_menu=True)
+
+    # Convert the NetworkX graph to PyVis
+    nt.from_nx(G)
+
+    # Customize Node Appearance: Add degree to node labels and adjust appearance
+    for node in nt.nodes:
+         # Fixed size
+        node['color'] = 'grey'  # Default node color
+        node_id = node['id']
+        node['size'] = node_degrees[node_id] / 500
+
+        if node['size'] < 5:
+            node['size'] = 5
+        
+        # Add degree to the label for display
+        node['title'] = f"Node: {node_id}<br>Weighted_degree: {node_degrees[node_id]}"
+        
+        if 'Primary' in node_id:  # Adjust color for Primary commodities
+            node['color'] = '#542788'  # Purple color
+        elif 'Byprod' in node_id:  # Adjust color for Byprod commodities
+            node['color'] = '#e08214'  # Orange color
+
+    # Customize Edge Appearance: Standardize edge width
+    for edge in nt.edges:
+        edge['color'] = '#cccccc'  # Light grey color for edges
+        edge['title'] = f"Edge_from_{edge['from']}_to_{edge['to']}<br>Co_occurance: {edge['width']}"
+        edge['width'] = edge['width'] / 50  # Scale width
+    # Add event listener for node selection and highlight connected nodes
+    options = """
+    var options = {
+        "nodes": {
+            "borderWidth": 1,
+            "borderWidthSelected": 5,
+            "shadow": true,
+            "font": {
+                "size": 12, 
+                "bold": true
+            }
+        },
+        "edges": {
+            "color": {
+                "color": "#cccccc",
+                "highlight": "#ff0000"
+            },
+            "smooth": {
+                "type": "continuous"
+            }
+        },
+        "physics": {
+            "enabled": true, 
+            "maxVelocity": 0.01,
+            "minVelocity": 0.001,
+            "updateInterval": 50,
+            "stabilization": {
+                "enabled": true
+                },
+            "solver": "forceAtlas2Based",
+            "forceAtlas2Based": {
+                "springLength": 200, 
+                "springConstant": 0.05,  
+                "damping": 10, 
+                "gravity": -50  
+                }
+        }
+    }
+    """
+    
+    # Set the network options
+    nt.set_options(options)
+
+    # Save the graph to an HTML file
+    nt.save_graph('com_network.html')
+
     pass
 
+def relative_weighted_degree_per_mine(df, df_network_stats):
+    """
+    Calculates the relative weighted degree per mine.
+    Returns a dictionary with the mine as the key and the relative weighted degree as the value.
+    """
+    # Filter commodity columns and stack the DataFrame
+    coms = [col for col in df.columns if 'Primary' in col or 'Byprod' in col]
+    df_mine = df.set_index('id_data_source')[coms].stack().reset_index()
+
+    # Rename columns for clarity
+    df_mine.rename(columns={'id_data_source': 'id_data_source', 'level_1': 'Commodity', 0: 'Extracted_binary'}, inplace=True)
+
+    # Convert extracted binary column to integer
+    df_mine['Extracted_binary'] = df_mine['Extracted_binary'].astype(int)
+
+    df_mine = df_mine[df_mine['Extracted_binary'] == 1]
+
+    # Merge with network stats on Commodity
+    df_mine = df_mine.merge(df_network_stats, on='Commodity', how='left')
+
+    # Calculate relative weighted degree
+    df_mine['Weighted_product'] = df_mine['Weighted_degree'] * df_mine['Extracted_binary']
+    total_weighted = df_mine.groupby('id_data_source')['Weighted_product'].transform('sum')
+    df_mine['Rel_weight_degree'] = df_mine['Weighted_product'] / total_weighted
+
+    df_mine = df_mine[['id_data_source', 'Commodity', 'Rel_weight_degree']]
+
+    data_to_csv_int(df_mine, 'rel_weighted_degree_per_mine')
+
+
+    return df_mine
+
+def prim_com_based_weight(df):
+    """
+    Calculates the relative weighted degree per mine.
+    Returns a dictionary with the mine as the key and the relative weighted degree as the value.
+    """
+    # Filter commodity columns and stack the DataFrame
+    coms = [col for col in df.columns if 'Primary'in col]
+    
+    df = df.set_index('id_data_source')
+    df_mine = df[coms].stack().reset_index()
+    df_mine.rename(columns={'id_data_source': 'id_data_source', 'level_1': 'Commodity', 0: 'Extracted_binary'}, inplace=True)
+    df_mine['Extracted_binary'] = df_mine['Extracted_binary'].astype(int)
+    df_mine = df_mine[df_mine['Extracted_binary'] > 0]	
+
+    # Equal weight for each primary commodity
+    df_mine['Prim_count'] = df_mine.groupby('id_data_source')['Commodity'].transform('count')
+    df_mine['Prim_weight'] = 1 / df_mine['Prim_count']
+
+    data_to_csv_int(df_mine, 'prim_com_based_weight')
+
+    return df_mine
+
+
+
+def boxplot_relative_weighted_degree_per_mine(file_p = r'data\int\M_alloc\rel_weighted_degree_per_mine.csv'):
+    '''
+    This function plots a boxplot of the relative weighted degree per mine.
+    '''
+    # Plot a boxplot of the relative weighted degree per mine
+    df_rel_w = pd.read_csv(file_p)
+
+    important_coms = df_rel_w['Commodity'].value_counts().nlargest(20).index
+    
+    df_rel_w = df_rel_w[df_rel_w['Commodity'].isin(important_coms)]
+
+    p = (ggplot(df_rel_w, aes(x='Commodity', y='Rel_weight_degree', color = 'Commodity')) + geom_boxplot() + theme_minimal())
+
+    # rotate x labels
+    p = p + theme(axis_text_x=element_text(angle=45, size=12), figure_size=(16, 6))
+
+    # legend off
+    p = p + theme(legend_position='none')
+
+
+    save_fig_plotnine(p, 'rel_weighted_degree_per_mine_boxplot.png', w= 14, h=8)
+
+    return None
+
+def calc_sum_prim_com(df):
+
+    # primary commodities
+    coms = [col for col in df.columns if 'Primary' in col]
+
+    df['sum_prim_com'] = df[coms].sum(axis = 1)
+    
+    number_of_mines = df['id_data_source'].nunique()
+    non_singular_primary = len(df[df['sum_prim_com'] > 1])
+
+    print(f'Number of mines: {number_of_mines}')
+    print(f'Number of mines with more than one primary commodity: {non_singular_primary / number_of_mines * 100:.2f}%')
+
+
+def circular_nx_plot(G):
+    # Define a dictionary to assign colors to primary and byproduct commodities
+    
+    
+    color_map = {}
+    for col in G.nodes():
+        if 'Primary' in col:
+            color_map[col] = '#542788'  # Color for primary commodities
+        elif 'Byprod' in col:
+            color_map[col] = '#e08214'  # Color for byproduct commodities
+
+    pos =  nx.circular_layout(G) # Positioning the nodes
+    
+    plt.figure(figsize=(14, 14))
+
+    # Extract edge weights
+    edges = G.edges(data=True)
+    weights = [edge[2]['weight'] for edge in edges]  # Edge weights for visualization
+
+     # min max scale weights
+    weights = StandardScaler().fit_transform(np.array(weights).reshape(-1, 1)).flatten()
+
+    # Draw nodes and edges with the color map for nodes
+    node_colors = [color_map[node] for node in G.nodes()]
+    
+    nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=500, alpha=0.8)
+    nx.draw_networkx_labels(G, pos, font_size=8)
+    nx.draw_networkx_edges(G, pos, width=weights, alpha=0.8, edge_color='gray')
+
+    
+    plt.axis('off')  # Hide axes
+    plt.tight_layout()
+
+    # Save the figure
+    save_fig('com_network_colored.png')
+
+    # Show the plot
+    plt.show()
+
+    pass
 
 def main():
     df = gpd.read_file(r'data\int\D_train_tetst_df\features_all_mines_all_coms.gpkg')
 
-    G = generate_network(df)
-    df = calculate_weighted_degree_per_commodity(G)
-    plot_network_properties(df)
+    prim_com_based_weight(df)
 
     pass
+
+
 
 if __name__ == '__main__': 
     main()

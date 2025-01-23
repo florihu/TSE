@@ -1,17 +1,17 @@
 import pandas as pd
 from plotnine import *
-
-from util import save_fig_plotnine , save_fig, df_to_latex
 import scipy.stats as stats
-
 import matplotlib.pyplot as plt
-
+import numpy as np
+from scipy.stats import zscore, norm, lognorm
+from statsmodels.tsa.seasonal import seasonal_decompose
 import numpy as np
 
-from scipy.stats import zscore
+from M_prod_model import hubbert_model, femp, femp_deriv, hubbert_deriv
+from util import save_fig_plotnine , save_fig, df_to_latex
+from D_sp_data_clean import get_data
 
-from M_prod_model import hubbert_model
-
+import seaborn as sns
 
 def hist_per_target(data, targets):
 
@@ -457,6 +457,315 @@ def error_and_cum_prod_hubbert(res, targets):
     return None
 
 
+def check_positive(x, replace = 1e-8):
+
+    if x <= 0:
+        return replace
+    else:
+        return x
+def predict_femp(t, R0, C, R0_err, C_err, n_samples):
+    """
+    Monte Carlo sampling for confidence interval estimation of FEMP model.
+    
+    Parameters:
+        t (np.array): Time
+        R0 (float): Initial reserves
+        C (float): Production-to-reserve ratio
+        R0_err (float): Standard deviation of R0
+        C_err (float): Standard deviation of C
+        n_samples (int): Number of Monte Carlo samples
+    
+    Returns:
+        tuple: Mean prediction, lower CI, upper CI
+    """
+    # Generate Monte Carlo samples for R0 and C
+
+    # R0 is lognormal distributed
+
+    
+    R0_samples = norm.rvs(loc=check_positive(R0), scale=check_positive(R0_err), size=n_samples)
+    C_samples = norm.rvs(loc=check_positive(C), scale=check_positive(C_err), size=n_samples)
+
+    # Evaluate the FEMP model derivative for each sample
+    predictions = [femp_deriv(t, R0_sample, C_sample) for R0_sample, C_sample in zip(R0_samples, C_samples)]
+
+    predictions = np.array(predictions)
+    mean_prediction = np.mean(predictions, axis=0)
+    lower_ci = np.percentile(predictions, 2.5, axis=0)
+    upper_ci = np.percentile(predictions, 97.5, axis=0)
+
+    return mean_prediction, lower_ci, upper_ci
+
+def predict_hubbert(t, L, k, t0, L_err, k_err, t0_err, n_samples):
+    """
+    Monte Carlo sampling for confidence interval estimation of Hubbert model.
+    
+    Parameters:
+        t (np.array): Time
+        L (float): Maximum production
+        k (float): Growth rate
+        t0 (float): Time of peak production
+        L_err (float): Standard deviation of L
+        k_err (float): Standard deviation of k
+        t0_err (float): Standard deviation of t0
+        n_samples (int): Number of Monte Carlo samples
+    
+    Returns:
+        tuple: Mean prediction, lower CI, upper CI
+    """
+    # Generate Monte Carlo samples for L, k, and t0
+    
+    # L is log normal distributed
+
+
+    L_samples = norm.rvs(loc=check_positive(L), scale=check_positive(L_err), size=n_samples)
+
+
+    k_samples = norm.rvs(loc=check_positive(k), scale=check_positive(k_err), size=n_samples)
+    
+    #t0 is also lognormal distributd
+    t0_samples = norm.rvs(loc=check_positive(t0), scale=check_positive(t0_err), size=n_samples)
+
+    # Evaluate the Hubbert model derivative for each sample
+    predictions = [hubbert_deriv(t, L_sample, k_sample, t0_sample) for L_sample, k_sample, t0_sample in zip(L_samples, k_samples, t0_samples)]
+
+
+    predictions = np.array(predictions)
+    mean_prediction = np.mean(predictions, axis=0)
+    lower_ci = np.percentile(predictions, 2.5, axis=0)
+    upper_ci = np.percentile(predictions, 97.5, axis=0)
+
+    return mean_prediction, lower_ci, upper_ci
+
+
+# Apply to DataFrame
+def calculate_prod_row(row):
+    if row['Model'] == 'femp':
+        return femp_deriv(row['Year'], row['P1_value'], row['P2_value'])
+    elif row['Model'] == 'hubbert':
+        return hubbert_deriv(row['Year'], row['P1_value'], row['P2_value'], row['P3_value'])
+    
+def calculate_stock_row(row):
+    if row['Model'] == 'femp':
+        return femp(row['Year'], row['P1_value'], row['P2_value'])
+    elif row['Model'] == 'hubbert':
+        return hubbert_model(row['Year'], row['P1_value'], row['P2_value'], row['P3_value'])
+
+
+
+def obs_pred_femp_hubbert(df, modelres, targets, fig_manu = False):
+    # Convert observed values in df to mega tonnes
+    df['Observed'] = df['Observed'] / 1e6  # Assuming data is in tonnes
+    df['Residual'] = df['Residual'] / 1e6  # Assuming data is in tonnes
+
+    # Create a DataFrame with all possible years for each Prop_id, Target_var, and Model
+    df_pred = (
+        df.groupby(['Prop_id', 'Target_var', 'Model'])
+        .apply(lambda x: pd.DataFrame({'Year': np.arange(0, x['Year'].max() + 1)}))
+        .reset_index(level=[0, 1, 2])
+    )
+
+
+    # Merge predictions with results
+    df_pred = df_pred.merge(modelres, on=['Prop_id', 'Target_var', 'Model'], how='left')
+
+    # Calculate predicted values and confidence intervals
+    df_pred['Prod_pred'] = df_pred.apply(calculate_prod_row, axis=1)
+
+    df_pred['Prod_lower_95ci'] = df_pred['Prod_pred'] - 1.96 * df_pred['RMSE']
+    df_pred['Prod_high_95ci'] = df_pred['Prod_pred'] + 1.96 * df_pred['RMSE']
+
+
+    df_pred['Stock_pred'] = df_pred.apply(calculate_stock_row, axis=1)
+
+    df_pred['Stock_lower_95ci'] = df_pred['Stock_pred'] - 1.96 * df_pred['RMSE']
+    df_pred['Stock_high_95ci'] = df_pred['Stock_pred'] + 1.96 * df_pred['RMSE']
+
+    # Replace non zero confidence intervals with zero
+    df_pred.loc[df_pred['Prod_lower_95ci'] < 0, 'Prod_lower_95ci'] = 0
+    df_pred.loc[df_pred['Stock_lower_95ci'] < 0, 'Stock_lower_95ci'] = 0
+
+
+    #Convert to Mt
+    df_pred['Prod_pred'] = df_pred['Prod_pred'] / 1e6
+    df_pred['Prod_lower_95ci'] = df_pred['Prod_lower_95ci'] / 1e6
+    df_pred['Prod_high_95ci'] = df_pred['Prod_high_95ci'] / 1e6
+
+    df_pred['Stock_pred'] = df_pred['Stock_pred'] / 1e6
+    df_pred['Stock_lower_95ci'] = df_pred['Stock_lower_95ci'] / 1e6
+    df_pred['Stock_high_95ci'] = df_pred['Stock_high_95ci'] / 1e6
+
+    df_pred = df_pred.merge(df[['Prop_id', 'Prop_name']], on='Prop_id', how='left')
+
+    if fig_manu:
+        w= 16
+        h=12
+        size = 12
+        # Get the top 4 mines with the most data points for the current target variable
+        mine_partial_names = ['Escondida','Charcas', 'Ramu']
+
+        # get unique prop ids where prop name contains the partial name
+        mine_select = df[df['Prop_name'].str.contains('|'.join(mine_partial_names))]['Prop_id'].unique()
+
+        type = 'manu'
+
+    else:   
+        w= 24
+        h=24
+        size = 8
+        # get random 49 prop ids
+        mine_select = np.random.choice(df['Prop_id'].unique(), size=49, replace=False)
+        type = 'explo'
+
+    # Plot for each target variable
+    for t in targets:
+        # Filter data for the selected target
+        df_pred_t = df_pred[
+            (df_pred['Prop_id'].isin(mine_select)) & 
+            (df_pred['Target_var'] == t) & 
+            (df_pred['Model'] == 'hubbert')
+        ]
+        
+        if df_pred_t.empty:
+            continue
+
+        df_t = df[
+            (df['Prop_id'].isin(mine_select)) & 
+            (df['Target_var'] == t) & 
+            (df['Model'] == 'hubbert')
+        ]
+
+        # Prepare a unified DataFrame for plotting
+        df_pred_t_melted = df_pred_t.melt(
+            id_vars=['Year', 'Prop_name'], 
+            value_vars=['Prod_pred', 'Prod_lower_95ci', 'Prod_high_95ci'], 
+            var_name='Category', 
+            value_name='Value'
+        )
+        df_pred_t_melted['Category'] = df_pred_t_melted['Category'].replace({
+            'Prod_pred': 'Predicted',
+            'Prod_lower_95ci': 'Lower CI',
+            'Prod_high_95ci': 'Upper CI'
+        })
+
+        df_t_melted = df_t.melt(
+            id_vars=['Year', 'Prop_name'], 
+            value_vars=['Observed', 'Residual'], 
+            var_name='Category', 
+            value_name='Value'
+        )
+        df_t_melted['Category'] = df_t_melted['Category'].replace({
+            'Observed': 'Observed',
+            'Residual': 'Residual'
+        })
+
+        # Combine the DataFrames
+        df_combined = pd.concat([df_pred_t_melted, df_t_melted], ignore_index=True)
+
+        # Define colors for categories
+        color_dict = {
+            'Predicted': '#542788',
+            'Lower CI': '#542788',
+            'Upper CI': '#542788',
+            'Observed': 'black',
+            'Residual': '#c51b7d'
+        }
+
+        # Create the plot
+        p = (
+            ggplot(df_combined, aes(x='Year', y='Value', color='Category', fill='Category'))
+            + geom_line(data=df_combined[df_combined['Category'] == 'Predicted'], size=1)
+            + geom_ribbon(aes(ymin='Value', ymax='Value'),
+                data=df_combined[df_combined['Category'].isin(['Lower CI', 'Upper CI'])], 
+                alpha=0.2
+            )
+            + geom_point(
+                data=df_combined[df_combined['Category'] == 'Observed'], 
+                size=2, 
+                shape='o'
+            )
+            + geom_point(
+                data=df_combined[df_combined['Category'] == 'Residual'], 
+                size=2, 
+                shape='x'
+            )
+            + geom_smooth(
+                data=df_combined[df_combined['Category'] == 'Residual'], 
+                method='lm', 
+                se=True, 
+                alpha=0.2,
+                linetype='dashed'
+            )
+            + facet_wrap('~Prop_name', scales='free', ncol=3)
+            + labs(
+                x='Year',
+                y=f'{t} (Mt)',
+                color='Category',
+                fill='Category'
+            )
+            + theme_minimal()
+            + scale_color_manual(values=color_dict)
+            + scale_fill_manual(values=color_dict)
+            + theme(
+                legend_position='bottom', 
+                text=element_text(size=size), 
+                subplots_adjust={"wspace": 1, "hspace": 1}
+            )
+        )
+
+        
+
+        # Save the plot
+        save_fig_plotnine(p, f'{t}_prod__obs_pred_{type}.png', w=w, h=h)
+
+    
+
+
+
+        # p1 = (
+        #     ggplot(df_pred_t, aes(x='Year', y='Stock_pred', color='Model'))
+        #     + geom_line()
+        #     + geom_ribbon(aes(ymin='Stock_lower_95ci', ymax='Stock_high_95ci', fill='Model'), alpha=0.2)
+        #     + facet_wrap('~Prop_name', scales='free')
+        #     + labs(
+        #         x='Year',
+        #         y=f'{t} cumulative (Mt)',
+        #     )
+        #     + theme_minimal()
+        #     + scale_color_manual(values=color_dict)
+        #     + theme(legend_position='bottom', text=element_text(size=size), subplots_adjust={"wspace": 1, "hspace": 1})
+        # )
+
+        # if fig_manu:
+        #     # legend off
+        #     p1 = p1 + theme(legend_position='none')
+        # # Save the plot
+        # save_fig_plotnine(p1, f'{t}_stock__obs_pred_{type}.png', w=w, h=h)
+
+def hubbert_k_vs_L(modelres, targets):
+
+    for t in targets:
+        # Extract the relevant subset of data
+        df = modelres[(modelres['Target_var'] == t) & (modelres['Model'] == 'hubbert')]
+
+        # Prepare the data
+        df['L'] = np.log(df['P1_value'])
+        df['k'] = df['P2_value']
+        df['t0'] = df['P3_value']
+        df['L_err'] = np.log(df['P1_err'])
+        df['k_err'] = df['P2_err']
+        df['t0_err'] = df['P3_err']
+
+        plot = (
+            ggplot(df, aes(x='k', y='L'))
+            + geom_point()  # Scatter plot of k vs L
+            + geom_smooth( method = 'lm', color='red')  # Linear regression lin
+            + labs(x='k', y='L log(t)')  # Axis labels
+            + theme_minimal()  # Minimal theme
+        )
+        #increase text
+        plot = plot + theme(text=element_text(size=16))
+        save_fig_plotnine(plot, f'{t}_hubbert_k_vs_L.png', w=12, h=10)
 
 def main():
     
@@ -467,11 +776,19 @@ def main():
     targets = ['Tailings_production', 'Waste_rock_production', 'Ore_processed_mass', 'Concentrate_production']
     res = pd.read_csv(model_res_path)
     modelres = pd.read_json(r'data\int\production_model_fits.json')
+
+    site = get_data('site')
+
+    # construct a feature from prop name, primary commodity and Country
+    site['Prop_name'] = site['Prop_name'].str.cat(site[['Primary_commodity', 'Country_name']], sep=', ')
+
+    # merge site
+    merge = res.merge(site[['Prop_id', 'Prop_name']], on='Prop_id', how='left')
     
-    merge = res.merge(modelres[['Prop_id', 'Target_var', 'Model', 'P1_value', 'P2_value', 'P3_value']], on=['Prop_id', 'Target_var', 'Model'], how='left')
-    
-    error_and_cum_prod_hubbert(merge, targets)
-    
+    #modelres = modelres.merge(site[['Prop_id', 'Prop_name', 'Primary_commodity']], on='Prop_id', how='left')
+
+    obs_pred_femp_hubbert(merge, modelres, targets, fig_manu = True)
+
     return None
 
 

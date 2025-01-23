@@ -27,7 +27,7 @@ def get_path(name):
     # If not found, return None
     return None
 
-def save_fig(name):
+def save_fig(name, dpi=300):
     base_folder = 'fig'
     # Get the calling script’s filename
     calling_script = inspect.stack()[1].filename
@@ -39,7 +39,7 @@ def save_fig(name):
 
     file_path = os.path.join(path, name)
 
-    plt.savefig(file_path)
+    plt.savefig(file_path, dpi=dpi)
 
     return None
 

@@ -14,6 +14,9 @@ and split into a dataset for prediction of waste rock and a dataset for predicti
 '''
 
 import pandas as pd
+from scipy.stats import norm, lognorm, uniform
+import numpy as np
+
 
 from M_prod_model import hubbert_model, femp
 from R_prod_analysis import identify_cum_model
@@ -23,7 +26,7 @@ from tqdm import tqdm
 from util import append_to_excel, data_to_csv_int, df_to_gpkg, save_fig_plotnine
 from plotnine import *
 
-def return_integrated_values(row, df_res):
+def return_integrated_values(row, df_res, ua = False, **kwargs):
     '''
     This function is used to return the integrated values for the production model.
     The function is used in the apply method of the dataframe.
@@ -32,21 +35,91 @@ def return_integrated_values(row, df_res):
 
     period = 2019 - df_res[df_res.Prop_id == row['Prop_id']]['Start_up_year'].values[0]
     
-    if row['Class'] == 'H':
-        p1, p2, p3 = df_res[(df_res.Prop_id == row['Prop_id']) & 
-                            (df_res.Target_var == row['Target_var']) &
-                            (df_res.Model == 'hubbert')][['P1_value', 'P2_value', 'P3_value']].values.flatten()
-        return period, hubbert_model(period, p1, p2, p3)
-        
-    elif row['Class'] == 'F':
-        # unpack the values
-        p1, p2 = df_res[(df_res.Prop_id == row['Prop_id']) & 
-                            (df_res.Target_var == row['Target_var']) &
-                            (df_res.Model == 'femp')][['P1_value', 'P2_value']].values.flatten()
-        return period, femp(period, p1, p2)
 
+    if ua == False: 
+        if row['Class'] == 'H':
+            p1, p2, p3 = df_res[(df_res.Prop_id == row['Prop_id']) & 
+                                (df_res.Target_var == row['Target_var']) &
+                                (df_res.Model == 'hubbert')][['P1_value', 'P2_value', 'P3_value']].values.flatten()
+            return period, hubbert_model(period, p1, p2, p3)
+            
+        elif row['Class'] == 'F':
+            # unpack the values
+            p1, p2 = df_res[(df_res.Prop_id == row['Prop_id']) & 
+                                (df_res.Target_var == row['Target_var']) &
+                                (df_res.Model == 'femp')][['P1_value', 'P2_value']].values.flatten()
+            return period, femp(period, p1, p2)
+
+        else:
+            return period, None   
+        
     else:
-        return period, None   
+        sample_size = kwargs['sample_size']
+        
+        period = np.repeat(period, sample_size)
+
+        if row['Class'] == 'H':
+            # Extract parameter values
+            p1, p2, p3 = df_res[(df_res.Prop_id == row['Prop_id']) & 
+                                (df_res.Target_var == row['Target_var']) &
+                                (df_res.Model == 'hubbert')][['P1_value', 'P2_value', 'P3_value']].values.flatten()
+
+            p1_err, p2_err, p3_err = df_res[(df_res.Prop_id == row['Prop_id']) & 
+                                            (df_res.Target_var == row['Target_var']) &
+                                            (df_res.Model == 'hubbert')][['P1_err', 'P2_err', 'P3_err']].values.flatten()
+
+            # Log-normal distribution requires the log-transformed parameters for initialization
+            p1_mean_log = np.log(p1)
+            p1_std_log = p1_err / p1  # Approximation assuming small relative error
+
+            p3_mean_log = np.log(p3)
+            p3_std_log = p3_err / p3  # Approximation assuming small relativimpor
+
+            # Initialize distributions
+            p1_distrib = lognorm(s=p1_std_log, scale=np.exp(p1_mean_log))
+            p2_distrib = norm(loc=p2, scale=p2_err)  # Normal distribution
+            p3_distrib = lognorm(s=p3_std_log, scale=np.exp(p3_mean_log))
+
+            # Draw 1 sample from each distribution
+            p1_sample = p1_distrib.rvs(sample_size)[0]
+            p2_sample = p2_distrib.rvs(sample_size)[0]
+            p3_sample = p3_distrib.rvs(sample_size)[0]
+
+            # Return the result of the Hubbert model
+            return period[0], hubbert_model(period, p1_sample, p2_sample, p3_sample)
+            
+
+        elif row['Class'] == 'F':
+            # unpack the values
+            p1, p2 = df_res[(df_res.Prop_id == row['Prop_id']) & 
+                                (df_res.Target_var == row['Target_var']) &
+                                (df_res.Model == 'femp')][['P1_value', 'P2_value']].values.flatten()
+            
+            p1_err, p2_err = df_res[(df_res.Prop_id == row['Prop_id']) & 
+                                (df_res.Target_var == row['Target_var']) &
+                                (df_res.Model == 'femp')][['P1_err', 'P2_err']].values.flatten()
+            
+            # p1-R0, p2- C
+
+            p1_mean_log = np.log(p1)
+            p1_std_log = p1_err / p1
+            
+
+            p1_distrib = lognorm(s = p1_mean_log scale = p1_std_log)
+            p2_distrib = norm(loc = p2, scale = p2_err)
+
+            
+            # draw 1 sample from the distribution - does the inverse already of the lonorm
+            p1_sample = p1_distrib.rvs(sample_size)[0]
+            p2_sample = p2_distrib.rvs(sample_size)[0]
+            
+            return period, femp(period, p1_sample, p2_sample)
+        
+        
+        else:    
+            return period, None
+
+
 
 def get_cumsum(df):
     # Identify cumulative model data

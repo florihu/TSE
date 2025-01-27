@@ -1,9 +1,14 @@
 
 import pandas as pd
 from plotnine import *
-from util import df_to_latex, save_fig_plotnine, data_to_csv_int
+
 import numpy as np
 
+
+
+from util import df_to_latex, save_fig_plotnine, data_to_csv_int
+
+from R_prod_error_analysis import add_mine_context
 
 def reindex_df(df, targets):
     ''' 
@@ -13,9 +18,8 @@ def reindex_df(df, targets):
     # Reindex the data with the start year of a mine
 
     df = df.copy()
-
-    df['Year'] = pd.to_datetime(df['Year']).dt.year.astype(int)
-    df['Start_up_year'] = pd.to_datetime(df['Start_up_year']).dt.year
+    df.drop(columns='Unnamed: 0', inplace=True)
+    df['Year'] = df.Year.astype(int)
     df = df[df['Start_up_year'].isna() == False]
     df['Start_up_year'] = df['Start_up_year'].astype(int)
 
@@ -39,72 +43,112 @@ def reindex_df(df, targets):
     return res2
 
 def missing_values_per_mine(df, targets):
-    # Compute the proportion of missing values for each target column, grouped by 'Prop_id'
-    prop = df.groupby('Prop_id')[targets].apply(lambda group: group.isna().mean())
-
-    summary = prop.describe().T
-
-    df_to_latex(summary, 'missing_values_per_mine')
-
+    # Ensure proper reindexing
+    df = reindex_df(df, targets)
+    
+    # Calculate the proportion of non-missing values for each `Prop_id`
+    group_counts = df.groupby('Prop_id')[targets].count()
+    group_missing = df.groupby('Prop_id')[targets].apply(lambda x: x.isna().sum())
+    prop = group_counts.div(group_counts + group_missing)
+    
+    # Generate summary statistics
+    summary = prop.describe().round(2)
+    
+    # Save the summary to LaTeX
+    #df_to_latex(summary, 'missing_values_per_mine')
+    
     return prop
 
 def histplot_with_v_line(df):
+
+    df = missing_values_per_mine(df, ['Tailings_production', 'Waste_rock_production', 'Ore_processed_mass', 'Concentrate_production'])
+
+    # rename columns
+    rename_dict = {'Tailings_production': 'TP', 'Waste_rock_production': 'WRP', 'Ore_processed_mass': 'OP', 'Concentrate_production': 'CP'}
     
+    
+
     df_melt = df.melt(value_vars=['Tailings_production', 'Waste_rock_production', 'Ore_processed_mass', 'Concentrate_production'], var_name='Target', value_name='Value')
+    df_melt['Target'] = df_melt['Target'].replace(rename_dict)
 
     # histplot with .1, .25 and .3 lines
     p = (ggplot(df_melt, aes(x='Value', fill='Target'))
          + geom_histogram(bins=30, alpha = .6)
          + facet_wrap('~Target', scales='free')
-         + geom_vline(xintercept=[.1, .25, .4], color='black')
+         + geom_vline(xintercept=[.75, .5, .25], color='black')
          + theme_minimal()
-         + scale_fill_brewer(type='qual', palette='Set2')
+         + scale_fill_brewer(type='qual', palette='Dark2')
+        + theme(
+             legend_position='bottom',  # Move legend to the bottom
+            text = element_text(size= 14)  # Adjust axis tick label size
+         )
          )
     
-    # add a text to the lines
-    #p = p + geom_text(aes(x=[.1, .25, .4], y=0, label=['.1', '.25', '.4']), color='black', size=6, nudge_y=0.01)
 
-
-    save_fig_plotnine(p, 'histplot_missing_values_per_mine')
+    save_fig_plotnine(p, 'histplot_missing_values_per_mine', w=12, h=8)
     p.draw()
 
     return None
+
+
     
 def heatmap_missing_values_per_mine(df, targets):
     '''
-    
-    Assumptions
-    * only for mines with at least ten values
-    * only for years from 1950 onwards
+    Assumptions:
+    * Only for mines with at least ten values.
+    * Only for years from 1950 onwards.
     '''
+    df = reindex_df(df, targets)
     df_indexed = df.set_index(['Prop_id', 'Year'])
     df_missing = df_indexed.isna().astype(int).reset_index()
 
     for t in targets:
-        df_t = df_missing[['Year', 'Prop_id', t]] 
+        df_t = df_missing[['Year', 'Prop_id', t]]
 
-        # take only mines with at least ten values
+        # Take only mines with at least ten values
         df_t = df_t.groupby('Prop_id').filter(lambda x: x[t].count() > 10)
 
-        # prop id categorical
+        # Ensure 'Prop_id' is categorical
         df_t['Prop_id'] = pd.Categorical(df_t['Prop_id'], categories=df_t['Prop_id'].unique(), ordered=True)
 
-        
+        # Filter for years from 1950 onwards and ensure 'Year' is numeric
         df_t = df_t[df_t.Year >= 1950]
+        df_t['Year'] = df_t['Year'].astype(int)  # Ensure numeric type for Year
+
+        # Pivot and map values
         df_t = df_t.pivot(index='Prop_id', columns='Year', values=t)
-        df_t = df_t.fillna(-1).applymap(lambda x: "Not_applicable" if x == -1 else ("Missing" if x == 1 else "Value_present"))
-
-        p = (
-            ggplot(df_t.reset_index().melt(id_vars='Prop_id', var_name='Year', value_name='Category'))
-            + geom_tile(aes(x='Year', y='Prop_id', fill='Category'), color='white')
-            + scale_fill_manual(values={"Not_applicable": "white", "Missing": "#c51b7d", "Value_present": "#4d9221"})
-            + theme_minimal()
-            + theme(axis_text_x=element_text(angle=90, hjust=1))
+        df_t = df_t.fillna(-1).applymap(
+            lambda x: "Not_applicable" if x == -1 else ("Missing" if x == 1 else "Value_present")
         )
-        # axes annotation off
-        p = p + theme(axis_text_x=element_blank(), axis_text_y=element_blank(), axis_ticks_major_x=element_blank(), axis_ticks_major_y=element_blank())
 
-        save_fig_plotnine(p, f'heatmap_missing_values_{t}')
+        # Melt the data and ensure 'Year' is numeric
+        melted = df_t.reset_index().melt(id_vars='Prop_id', var_name='Year', value_name='Category')
+        melted['Year'] = melted['Year'].astype(int)  # Ensure numeric type for Year again
+
+        # Create the heatmap
+        p = (
+            ggplot(melted)
+            + geom_tile(aes(x='Year', y='Prop_id', fill='Category'), color='white')
+            + scale_fill_manual(
+                values={"Not_applicable": "white", "Missing": "#c51b7d", "Value_present": "#4d9221"}
+            )
+            + scale_x_continuous(breaks=range(1950, 2023, 10), limits=(1950, 2023), expand = (0, -1, 0, -1))         
+            + theme_minimal()
+            + theme(
+                axis_text_x=element_text(angle=45, hjust=1, size=14),
+                axis_title_x= element_text(size=14),
+                axis_title_y= element_text(size=14),
+                axis_ticks_major_x=element_blank(),
+                axis_text_y=element_blank(),
+                axis_ticks_major_y=element_blank(),
+                legend_position='bottom',
+                legend_text=element_text(size=14),
+            )
+        )
+
+        # Save the plot
+        save_fig_plotnine(p, f'heatmap_missing_values_{t}', w=14, h=10)
+
     return None
     
 def time_series_per_target(df, targets):
@@ -253,7 +297,6 @@ def rolling_outlier_detection(data, window_size, threshold):
 
     return cleaned_data, outliers
 
-
 def rolling_mean_outlier_loop(df_t, t, targets, window_size, threshold):
     """
     Calculate the rolling mean and identify outliers. 
@@ -282,11 +325,12 @@ def plot_time_series_target_outliers(df, targets, threshold=2):
     for t in targets:
         df_t = df[['Year', 'Prop_id', t]].copy()
         df_t = df_t[(df_t[t].isna() == False) & (df_t[t] >0)]
-        df_t['Year'] = pd.to_datetime(df_t['Year']).dt.year.astype(int)
+        df_t['Year'] = df_t['Year'].astype(int)
 
-        # choose randomly 49 mines
-        rand_49 = df_t['Prop_id'].sample(49).unique()
-        df_t = df_t[df_t['Prop_id'].isin(rand_49)]
+       
+       # choose 25 random mines
+        top_25 = df_t['Prop_id'].sample(25, random_state = 42).unique()
+        df_t = df_t[df_t['Prop_id'].isin(top_25)]
 
 
         for w in [5, 7, 10, 12]: 
@@ -294,22 +338,27 @@ def plot_time_series_target_outliers(df, targets, threshold=2):
             # Filter groups with more than 10 values
             df_t = df_t.groupby('Prop_id').filter(lambda x: x[t].count() > 10)
             
-            df_t = rolling_mean_outlier_loop(df_t, t, targets, window_size=w, threshold=threshold)
+            df_roll = rolling_mean_outlier_loop(df_t, t, targets, window_size=w, threshold=threshold)
+
+            df_cont = add_mine_context(df_roll)
             # scale to Mt
-            df_t[t] = df_t[t] / 10**3
+            df_cont[t] = df_cont[t] / 10**3
             # Plot time series with outliers
             p = (
-                ggplot(df_t, aes(x='Year', y=t, color=f'{t}_outlier'))
+                ggplot(df_cont, aes(x='Year', y=t, color=f'{t}_outlier'))
                 + geom_point()
                 + theme_minimal()
                 + labs(x='Year', y=f'{t} (kt)')
-                + facet_wrap('~Prop_id', scales='free')
+                + facet_wrap('~Prop_name', scales='free', ncol=5)
+                + theme(legend_position='bottom')
+
             )
 
             # add color map red outlier non black
             p = p + scale_color_manual(values={True: '#b2182b', False: '#4d4d4d'})
 
-            save_fig_plotnine(p, f'time_series_{t}_window_{w}_outliers', w=18, h=12)
+
+            save_fig_plotnine(p, f'time_series_{t}_window_{w}_outliers', w=18, h=18)
 
     return None
 
@@ -350,9 +399,11 @@ def main():
     
     path = r'data\int\D_target_prio_prep\target_vars_prio_source.csv'
 
-    data = pd.read_csv(path)
+    prod = pd.read_csv(path)
     targets = ['Tailings_production', 'Waste_rock_production', 'Ore_processed_mass', 'Concentrate_production']
-    outlier_detection_and_ouput(data, targets)
+    
+    plot_time_series_target_outliers(prod, targets)
+    
     
     return None
 

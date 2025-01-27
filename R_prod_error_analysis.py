@@ -767,6 +767,17 @@ def hubbert_k_vs_L(modelres, targets):
         plot = plot + theme(text=element_text(size=16))
         save_fig_plotnine(plot, f'{t}_hubbert_k_vs_L.png', w=12, h=10)
 
+def add_mine_context(data):
+
+    site = get_data('site')
+    # construct a feature from prop name, primary commodity and Country
+    site['Prop_name'] = site['Prop_name'].str.cat(site[['Primary_commodity', 'Country_name']], sep=', ')
+
+    # merge site
+    c_data = data.merge(site[['Prop_id', 'Prop_name']], on='Prop_id', how='left')
+
+    return c_data
+
 def main():
     
     path = r'data\int\D_build_sample_sets\target_vars_prio_source.csv'
@@ -777,13 +788,8 @@ def main():
     res = pd.read_csv(model_res_path)
     modelres = pd.read_json(r'data\int\production_model_fits.json')
 
-    site = get_data('site')
-
-    # construct a feature from prop name, primary commodity and Country
-    site['Prop_name'] = site['Prop_name'].str.cat(site[['Primary_commodity', 'Country_name']], sep=', ')
-
-    # merge site
-    merge = res.merge(site[['Prop_id', 'Prop_name']], on='Prop_id', how='left')
+    
+    merge = add_mine_context(data)
     
     #modelres = modelres.merge(site[['Prop_id', 'Prop_name', 'Primary_commodity']], on='Prop_id', how='left')
 

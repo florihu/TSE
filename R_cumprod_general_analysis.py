@@ -11,6 +11,22 @@ from matplotlib.ticker import FuncFormatter
 from sklearn.preprocessing import StandardScaler
 
 
+############################################ Purpose ############################################
+'''
+This script contains functions to analyze the results of the production model fits.
+
+'''
+
+############################################ Params ############################################
+
+rename_dict = {'Tailings_production': 'TP', 'Waste_rock_production': 'WRP', 'Ore_processed_mass': 'OP', 'Concentrate_production': 'CP'}
+
+randome_state = 42
+
+############################################ Functions ############################################
+
+
+
 
 def model_analytics_hist(data, v):
     '''
@@ -23,20 +39,19 @@ def model_analytics_hist(data, v):
 
     color_dict = {'femp': '#e08214', 'hubbert': '#542788'}
 
+    data['Target_var'] = data['Target_var'].replace(rename_dict)
+
     # Base plot setup
     plot = (
         ggplot(data, aes(x=v, fill='Model'))
         + geom_histogram(bins=20, alpha=0.7, position="identity")
-        + facet_wrap('~Target_var', nrow=2, scales='free_x')
+        + facet_wrap('~Target_var', nrow=2, scales='free')
         + labs(x=v, y='Frequency')
         + theme_minimal()
         + theme(subplots_adjust={'wspace': 0.3, 'hspace': 0.3}, text=element_text(size=14), legend_position='bottom')
         + scale_fill_manual(values=color_dict)
         )
 
-
-    
-       
     if v == 'RMSE':
         plot += labs(x=v + ' (Mt)')
         
@@ -52,7 +67,7 @@ def summarize_results(data):
     Function to summarize the results of the production model fits.
     '''
     # Group the data by target variable and model, and calculate the mean and standard deviation of the R^2 and RMSE values
-    summary = data.groupby(['Target_var', 'Model'])[['R2_train', 'RMSE_train', 'R2_test', 'RMSE_test']].agg(['mean', 'std']).reset_index()
+    summary = data.groupby(['Target_var', 'Model'])[['R2', 'RMSE', 'COV']].agg(['mean', 'std']).reset_index()
 
     new_columns = ['_'.join(col).strip() for col in summary.columns[2:].values]
 
@@ -65,13 +80,17 @@ def summarize_results(data):
     # Merge the summary statistics with the p-values
     summary = pd.merge(summary, p_values, on=['Target_var', 'Model']).set_index('Target_var')
 
-    summary[summary.Model.isin(['femp', 'power_law'])]['P3_pval'] = np.nan
+    summary[summary.Model.isin(['femp'])]['P3_pval'] = np.nan
 
     sample_sizes = data.groupby(['Target_var', 'Model']).size().reset_index(name='Sample_size')
     
     summary = pd.merge(summary, sample_sizes, on=['Target_var', 'Model']).set_index('Target_var')
 
-    df_to_latex(summary, 'model_summary')
+    # reset index, invert and make multi column target ar and model
+    summary = summary.reset_index().set_index(['Target_var', 'Model']).T
+    
+
+    df_to_latex(summary, 'model_summary', multicolumn=True)
     summary.to_csv(r'data\int\production_model_summary.csv')
 
     return summary
@@ -274,13 +293,11 @@ def identify_cum_model(modelres, sig=0.05):
 
 
 
-
 def class_bar_chart(modelres):
     '''
     Create a bar chart showing the class shares differentiated by Target_var.
 
     Class Descriptions:
-    - "FH": Both femp and hubbert parameters are significant
     - "F": Only femp parameters are significant
     - "H": Only hubbert parameters are significant
     - "N": None of the parameters are significant
@@ -295,14 +312,29 @@ def class_bar_chart(modelres):
     class_share['Share'] = class_share['Count'] / class_total
     class_share['Percentage'] = (class_share['Share'] * 100).round(1).astype(str) + '%'  # Convert to percentage
 
+
+    # rename target var
+    class_share['Target_var'] = class_share['Target_var'].replace(rename_dict)
+
+
+    class_share['Share'] = class_share['Share'] * 100
+
     # Create the bar chart using plotnine
     plot = (
         ggplot(class_share, aes(x='Target_var', y='Share', fill='Class'))
-        + geom_bar(stat='identity', position='stack')
+        + geom_bar(stat='identity', position='stack', alpha = 0.7)
         + theme_minimal()
-        + scale_fill_brewer(type='qual', palette='Set2', name='Class')
-        + theme(legend_position='right')
+        + scale_fill_brewer(type='qual', palette='Dark2', name='Class')
+        + theme(legend_position='bottom')
+        + labs(x='Target Variable', y='Percentage', fill='Class')
+        + theme(axis_text_x=element_text(size = 8),
+                axis_text_y=element_text(size = 8),
+                axis_title_x=element_text(size = 8),
+                axis_title_y=element_text(size = 8),
+                legend_title=element_text(size = 8),
+                legend_text=element_text(size = 8))
     )
+
     # Include value per category
     plot += geom_text(aes(label='Percentage'), position=position_stack(vjust=0.5), size=8)
 
@@ -322,9 +354,9 @@ def box_plot(data, v):
         ggplot(data, aes(x='Target_var', y=v, fill='Class'))
         + geom_boxplot()
         + theme_minimal()
-        + scale_fill_brewer(type='qual', palette='Set2', name='Class')
+        + scale_fill_brewer(type='qual', palette='Dark2', name='Class')
     )
-    if v in ['RMSE_train', 'RMSE_test']:
+    if v in ['RMSE']:
         plot += labs(x=v + 'log(t)')
         plot += scale_x_log10()
 
@@ -340,7 +372,7 @@ def box_plot(data, v):
 
 def sample_size_box(modelres):
 
-    subset = modelres[['Target_var',  'Sample_size_train', 'Sample_size_test']]
+    subset = modelres[['Target_var',  'Sample_size', 'Sample_']]
 
     subset.rename(columns={'Sample_size_train': 'Train', 'Sample_size_test': 'Test'}, inplace=True)
 
@@ -366,9 +398,11 @@ if __name__ == '__main__':
     sig = .05    
     modelres = pd.read_json(r'data\int\production_model_fits.json')
     rec = pd.read_csv(r'data\int\data_records.csv')
-    #res_trans = identify_significant_model(modelres, sig)
+    
+    
+    res_sig= identify_cum_model(modelres, sig)
 
-    #merge = rec.merge(res_trans[['Prop_id', 'Target_var', 'Model', 'Class']], on=['Prop_id', 'Target_var', 'Model'], how='left')
-
-    model_analytics_hist(modelres, 'COV')
+    class_bar_chart(res_sig)
+    
+    
    

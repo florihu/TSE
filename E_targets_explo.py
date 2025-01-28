@@ -8,7 +8,24 @@ import numpy as np
 
 from util import df_to_latex, save_fig_plotnine, data_to_csv_int
 
-from R_prod_error_analysis import add_mine_context
+from R_cumprod_per_mine_analysis import add_mine_context
+
+
+############################################ Purpose ############################################
+'''
+1. Generate a histogram of the proportion of missing values per mine for each target variable.
+2. Generate a heatmap of missing values per mine for each target variable.
+3. Generate time series plots for each target variable.
+
+'''
+
+############################################ Params ############################################
+
+rename_dict = {'Tailings_production': 'TP', 'Waste_rock_production': 'WRP', 'Ore_processed_mass': 'OP', 'Concentrate_production': 'CP'}
+
+randome_state = 42
+
+############################################ Functions ############################################
 
 def reindex_df(df, targets):
     ''' 
@@ -64,10 +81,8 @@ def histplot_with_v_line(df):
     df = missing_values_per_mine(df, ['Tailings_production', 'Waste_rock_production', 'Ore_processed_mass', 'Concentrate_production'])
 
     # rename columns
-    rename_dict = {'Tailings_production': 'TP', 'Waste_rock_production': 'WRP', 'Ore_processed_mass': 'OP', 'Concentrate_production': 'CP'}
     
     
-
     df_melt = df.melt(value_vars=['Tailings_production', 'Waste_rock_production', 'Ore_processed_mass', 'Concentrate_production'], var_name='Target', value_name='Value')
     df_melt['Target'] = df_melt['Target'].replace(rename_dict)
 
@@ -321,44 +336,47 @@ def rolling_mean_outlier_loop(df_t, t, targets, window_size, threshold):
     return df_t
 
 def plot_time_series_target_outliers(df, targets, threshold=2):
+    
 
     for t in targets:
         df_t = df[['Year', 'Prop_id', t]].copy()
         df_t = df_t[(df_t[t].isna() == False) & (df_t[t] >0)]
         df_t['Year'] = df_t['Year'].astype(int)
 
-       
-       # choose 25 random mines
-        top_25 = df_t['Prop_id'].sample(25, random_state = 42).unique()
-        df_t = df_t[df_t['Prop_id'].isin(top_25)]
+         # Filter groups with more than 10 values
+        df_t = df_t.groupby('Prop_id').filter(lambda x: x[t].count() > 10)
 
-
-        for w in [5, 7, 10, 12]: 
-            
-            # Filter groups with more than 10 values
-            df_t = df_t.groupby('Prop_id').filter(lambda x: x[t].count() > 10)
-            
+        # Sample random 40 mines
+        df_t = df_t[df_t['Prop_id'].isin(df_t['Prop_id'].sample(40, random_state=randome_state))]
+    
+        for w in [7, 10, 12]: 
             df_roll = rolling_mean_outlier_loop(df_t, t, targets, window_size=w, threshold=threshold)
 
             df_cont = add_mine_context(df_roll)
-            # scale to Mt
+            # scale to kt
             df_cont[t] = df_cont[t] / 10**3
             # Plot time series with outliers
+
+            # years to int
+            df_cont['Year'] = df_cont['Year'].astype(int, errors='ignore')
+
+
             p = (
                 ggplot(df_cont, aes(x='Year', y=t, color=f'{t}_outlier'))
-                + geom_point()
+                + geom_point(size = 2.5)
+                + geom_smooth(method='loess', se=True, color = '#1b7837')
                 + theme_minimal()
-                + labs(x='Year', y=f'{t} (kt)')
+                + labs(x='Year', y=f'{rename_dict[t]} (kt)', color=f'{rename_dict[t]} Outlier')
                 + facet_wrap('~Prop_name', scales='free', ncol=5)
                 + theme(legend_position='bottom')
 
             )
 
             # add color map red outlier non black
-            p = p + scale_color_manual(values={True: '#b2182b', False: '#4d4d4d'})
+            p = p + scale_color_manual(values={True: '#c51b7d', False: '#4d4d4d'})
 
 
-            save_fig_plotnine(p, f'time_series_{t}_window_{w}_outliers', w=18, h=18)
+            save_fig_plotnine(p, f'time_series_{t}_window_{w}_outliers', w=12, h=16)
 
     return None
 
@@ -396,6 +414,8 @@ def outlier_detection_and_ouput(df, targets,
 
 
 def main():
+
+
     
     path = r'data\int\D_target_prio_prep\target_vars_prio_source.csv'
 

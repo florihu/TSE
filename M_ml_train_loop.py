@@ -51,7 +51,7 @@ from tqdm import tqdm
 from util import data_to_csv_int, save_fig, save_fig_plotnine
 
 
-def geography_similarity(df, wb = None,  make_plot = False):
+def geography_similarity(df, make_plot = False):
     class ClusterSimilarity(BaseEstimator, TransformerMixin): 
         def __init__(self, n_clusters=10, gamma=1.0, random_state=None): 
             self.n_clusters = n_clusters 
@@ -83,7 +83,10 @@ def geography_similarity(df, wb = None,  make_plot = False):
     df['max_similarity'] = sim.max(axis=1)
 
     if make_plot:
-        assert wb is not None, 'Please provide a world boundary shapefile to plot the results.'
+        #assert wb is not None, 'Please provide a world boundary shapefile to plot the results.'
+        world_bounds_p = r'data\world_bound\world-administrative-boundaries.shp'
+
+        wb = gpd.read_file(world_bounds_p)
         wb.to_crs(df.crs, inplace=True)
 
         f, ax = plt.subplots(1, 1, figsize=(14, 7))
@@ -95,9 +98,11 @@ def geography_similarity(df, wb = None,  make_plot = False):
         plt.xlabel('Longitude')
         plt.ylabel('Latitude')
 
-        plt.show()
-
         save_fig('geography_similarity.png')
+
+        plt.show()  
+
+        
 
     return df
 
@@ -424,13 +429,72 @@ def plot_results(df, repfig = True):
 
 
 
+
+def hype_results(df, repfig = True):
+    # Melt the DataFrame
+
+    model_order = [
+        'ElasticNet', 'Lasso', 'LinearRegression', 'Ridge', 'MLPRegressor', 
+        'SVR', 'RandomForestRegressor', 'GradientBoostingRegressor'
+    ]
+
+
+
+    # Ensure the 'Model' column is ordered
+    df['Model'] = pd.Categorical(df['Model'], categories=model_order, ordered=True)
+
+
+
+    # melt the df
+    melt = df.melt(id_vars=['Model', 'Variable'], value_vars=['R2_mean_train', 'R2_mean_test', 'R2_std_train', 'R2_std_test'], var_name='Metric', value_name='Value')
+
+   
+    # Split 'Metric' into 'Metric_Type' and 'Data_Split'
+    melt[['Metric', 'Data_split']] = melt['Metric'].str.extract(r'(\w+)_(train|test)')
+    
+    split_order = ['train', 'test']
+    # Ensure the 'Data_Split' column is ordered
+    melt['Data_split'] = pd.Categorical(melt['Data_split'], categories=split_order, ordered=True)
+
+    melt_piv = melt.pivot_table(index=['Model', 'Variable', 'Data_split'], columns=['Metric'], values='Value').reset_index()
+
+
+    # color for train and test
+    color_dict = {'train': '#7570b3', 'test': '#d95f02'}
+
+
+    for v in ['Concentrate_production', 'Tailings_production']:
+    
+        
+        # make a scatter plot with model on x
+
+        p = (ggplot(melt_piv[melt_piv['Variable'] == v], aes(x='Model', y='R2_mean', color='Data_split')) 
+             
+        + geom_point(position=position_dodge(width=0.3), size=3)  # Shift points
+        + geom_errorbar(aes(ymin='R2_mean - R2_std', ymax='R2_mean + R2_std'),
+                             position=position_dodge(width=0.3), width=0.2)
+        + labs(x='Model', y='R2') 
+        + theme_minimal() 
+        + theme(axis_text_x=element_text(rotation=45, hjust=1, vjust=1, size=10), 
+                axis_text_y=element_text(size=10),
+                axis_title_x=element_text(size=10),
+                axis_title_y=element_text(size=10),
+                legend_title=element_text(size=10),
+                legend_text=element_text(size=10),
+                figure_size=(12, 6))
+        + scale_color_manual(values=color_dict)
+
+        )
+  
+
+        # Save the plot
+        save_fig_plotnine(p, f'{v}_hype_opt_results', dpi=600)
+
 def main():
     mines_p = r'data\int\D_train_tetst_df\features_all_mines.gpkg'
     tailings_p = r'data\int\D_train_tetst_df\tailings.gpkg'
 
-    #world_bounds_p = r'data\world_bound\world-administrative-boundaries.shp'
-
-    #wb = gpd.read_file(world_bounds_p)
+    
 
 
     cat_vars =  ['Primary_Chromium',
@@ -465,14 +529,21 @@ def main():
     tailings = gpd.read_file(tailings_p)
     tail_imp = immpute_vars(tailings, cat_vars, num_vars)
 
-    res = hype_loop(tail_imp)
+    geography_similarity(tail_imp, make_plot=True)
 
 
 
     pass
 
+
+def plot_hype_results(path = r'data\int\M_ml_train_loop\ml_hype_opt_results.csv'):
+    df = pd.read_csv(path)
+    hype_results(df, repfig=True)
+
 if __name__ == '__main__':
-    main()  
+    main()
+
+
 
 
 

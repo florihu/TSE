@@ -27,7 +27,7 @@ def get_path(name):
     # If not found, return None
     return None
 
-def save_fig(name, dpi=300):
+def save_fig(name, dpi=600):
     base_folder = 'fig'
     # Get the calling script’s filename
     calling_script = inspect.stack()[1].filename
@@ -99,7 +99,7 @@ def df_to_gpkg(df, filename, crs):
 
     return None
 
-def data_to_csv_int(data, name):
+def df_to_csv_int(data, name):
     ''' 
     
     Save data to a csv file in the data/int folder.

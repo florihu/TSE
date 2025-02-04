@@ -13,13 +13,13 @@ from sklearn.model_selection import train_test_split
 targets = ['Tailings_production', 'Waste_rock_production', 'Concentrate_production', 'Ore_processed_mass']
 
 lower_bounds = {
-    'hubbert': (-np.inf, -np.inf, 0),  # log-transformed L and k
-    'femp': (-np.inf, -np.inf)  # log-transformed R0, logit-transformed C
+    'hubbert': (0, 0, 0),  # log-transformed L and k
+    'femp': (0, 0)  # log-transformed R0, logit-transformed C
 }
 
 upper_bounds = {
     'hubbert': (np.inf, np.inf, np.inf),
-    'femp': (np.inf, np.inf)  # No upper bound needed for log-transformed variables
+    'femp': (np.inf, 1)  # No upper bound needed for log-transformed variables
 }
 min_sample_size = 10
 
@@ -32,6 +32,55 @@ def safe_exp(x):
     except OverflowError:
         return np.inf  # Or a reasonable max value
     
+def hubbert_transformed(t, log_L, log_k, t0):
+    """
+    Hubbert model with log-transformed parameters.
+    
+    Parameters:
+        t (np.array): Time
+        log_L (float): Log of maximum production
+        log_k (float): Log of growth rate
+        t0 (float): Time of peak production
+    
+    Returns:
+        np.array: Production at time
+    """
+    L = safe_exp(log_L)  # Ensure L is strictly positive
+    k = safe_exp(log_k)  # Ensure k is strictly positive
+    return L / (1 + np.exp(-k * (t - t0)))
+
+def femp_transformed(t, log_R0, C_transformed):
+     
+     """
+    FEMP model with log and logit-transformed parameters.
+    
+    Parameters:
+        t (np.array): Time
+        log_R0 (float): Log of initial reserves
+        C_transformed (float): Logit of production-to-reserve ratio
+    
+    Returns:
+        np.array: Production at time
+    """
+     R0 = safe_exp(log_R0)  # Ensure R0 is strictly positiv
+     C = 1 / (1 + safe_exp(-C_transformed))  # Ensure C stays between 0 and 1
+     return R0 * (1 - (1 - C)**t)
+
+def hubbert_deriv_transformed(t, log_L, log_k, t0):
+    """
+    Hubbert model derivative with log-transformed parameters.
+    """
+    L = safe_exp(log_L)  # Ensure L is strictly positive
+    k = safe_exp(log_k)  # Ensure k is strictly positive
+    return L * k * np.exp(-k * (t - t0)) / (1 + np.exp(-k * (t - t0)))**2
+
+def femp_deriv_transformed(t, log_R0, C_transformed):
+    """
+    FEMP model derivative with log and logit-transformed parameters.
+    """
+    R0 = safe_exp(log_R0)  # Ensure R0 is strictly positive
+    C = 1 / (1 + safe_exp(-C_transformed))  # Ensure C stays between 0 and 1
+    return -R0 * np.log(1 - C) * (1 - C)**t
 
 def hubbert_model(t, L, k, t0):
     '''
@@ -49,39 +98,6 @@ def hubbert_model(t, L, k, t0):
     '''
     return L / (1 + np.exp(-k * (t - t0)))
 
-def hubbert_L_restrict(t, k, t0, *args):
-    '''
-    Hubbert model for production with L restricted to be less than the maximum production
-    
-    Parameters:
-        t (np.array): Time
-        k (float): Growth rate
-        t0 (float): Time of peak production
-        
-    Returns:
-        np.array: Production at time
-    
-    '''
-    L = args[0]
-    return L / (1 + np.exp(-k * (t - t0)))
-
-
-def power_law(t, a, b):
-    '''
-    Power law model for production
-    
-    Parameters:
-        t (np.array): Time
-        a (float): Initial production
-        b (float): rate of growth over time
-        
-    Returns:
-        np.array: Production at time
-    
-    '''
-    return a * t**b
-
-
 def femp(t, R0, C):
     '''
     Exponential model for production
@@ -96,7 +112,6 @@ def femp(t, R0, C):
     
     '''
     return R0 * (1-(1-C)**t)
-
 
 def femp_deriv(t, R0, C):
     '''
@@ -129,35 +144,20 @@ def hubbert_deriv(t, L, k, t0):
     '''
     return L * k * safe_exp(-k * (t - t0)) / (1 + safe_exp(-k * (t - t0)))**2
 
-def hubbert_deriv_transformed(t, log_L, log_k, t0):
-    """
-    Hubbert model derivative with log-transformed parameters.
-    """
-    L = np.exp(log_L)  # Ensure L is strictly positive
-    k = np.exp(log_k)  # Ensure k is strictly positive
-    return L * k * np.exp(-k * (t - t0)) / (1 + np.exp(-k * (t - t0)))**2
-
-def femp_deriv_transformed(t, log_R0, C_transformed):
-    """
-    FEMP model derivative with log and logit-transformed parameters.
-    """
-    R0 = np.exp(log_R0)  # Ensure R0 is strictly positive
-    C = 1 / (1 + safe_exp(-C_transformed))  # Ensure C stays between 0 and 1
-    return -R0 * np.log(1 - C) * (1 - C)**t
-
-
 
 def prep_init_guesses(model_name, sample, t):
     if model_name == 'hubbert':
-        L_guess = np.log(sample[t].cumsum().max())  # Log transform
-        k_guess = np.log(sample[t].mean() / np.exp(L_guess))  # Log transform
-        t0_guess = sample.loc[sample[t].idxmax(), 'Year_diff'].astype(int)  # No transform
+        L_guess = sample[t].cumsum().max()  
+        k_guess = sample[t].mean() / L_guess  
+        t0_guess = sample.loc[sample[t].idxmax(), 'Year_diff'].astype(int) 
         return (L_guess, k_guess, t0_guess)
 
     elif model_name == 'femp':
-        R0_guess = np.log(sample[t].cumsum().max())  # Log transform
-        C_guess = np.log(sample[t].mean() / np.exp(R0_guess) / (1 - sample[t].mean() / np.exp(R0_guess)))  # Logit transform
+        R0_guess = sample[t].cumsum().max()
+        C_guess = sample[t].mean() / R0_guess
         return (R0_guess, C_guess)
+
+
 
 
 def fit_prod_model(mine, prod_data, models, targets, lower_bounds, upper_bounds, min_sample_size):
@@ -194,15 +194,12 @@ def fit_prod_model(mine, prod_data, models, targets, lower_bounds, upper_bounds,
 
                 # Transform parameters back to original scale
                 if model_name == 'hubbert':
-                    L_est, k_est, t0_est = safe_exp(popt[0]), safe_exp(popt[1]), popt[2]
-                    L_err = L_est * (safe_exp(perr[0]) - 1)
-                    k_err = k_est * (safe_exp(perr[1]) - 1)
-                    t0_err = perr[2]  # Assuming t0 is not log-transformed
+                    L_est, k_est, t0_est = popt[0], popt[1], popt[2]
+                    L_err, k_err, t0_err = perr[0] , perr[1],  perr[2]  # Assuming t0 is not log-transformed
 
                 else:  # FEMP model
-                    R0_est, C_est = safe_exp(popt[0]), 1 / (1 + np.exp(-popt[1]))
-                    R0_err = R0_est * (safe_exp(perr[0]) -1)  # Transform the log scale error
-                    C_err = C_est * (1 - C_est) * perr[1] # First order Tailor transformation
+                    R0_est, C_est = popt[0], popt[1]
+                    R0_err, C_err = perr[0], perr[1]
 
                 # Predictions on train and test data
                 pred = model(years.astype(int), *popt)  # No need   to exponentiate again
@@ -271,7 +268,7 @@ def fit_prod_model(mine, prod_data, models, targets, lower_bounds, upper_bounds,
 
 
 def prep_data(): 
-    prod_data = pd.read_csv(r'data\int\E_targets_explo\target_sample_with_outlier_detection.csv')
+    prod_data = pd.read_csv(r'data\int\E_targets_explo\target_sample_with_outlier_detection_trans.csv')
 
     prod_data['Year_diff'] = prod_data['Year'] - prod_data['Start_up_year']
 
@@ -289,7 +286,7 @@ def main_fitting_loop():
     Returns:
         pd.DataFrame: DataFrame of model fits
     """
-    models = {'hubbert': hubbert_deriv_transformed, 'femp': femp_deriv_transformed}
+    models = {'hubbert': hubbert_deriv, 'femp': femp_deriv}
     prod_data = prep_data()
 
     p_group = prod_data.groupby('Prop_id')
@@ -309,10 +306,6 @@ def main_fitting_loop():
     res_df.to_json('data/int/production_model_fits_trans.json', orient='records')
     data_records.to_csv('data/int/data_records_trans.csv', index=False)
     return res_df
-
-
-
-
 
 
 if __name__ == '__main__':

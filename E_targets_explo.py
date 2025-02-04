@@ -6,7 +6,7 @@ import numpy as np
 
 
 
-from util import df_to_latex, save_fig_plotnine, data_to_csv_int
+from util import df_to_latex, save_fig_plotnine, df_to_csv_int
 
 from R_cumprod_per_mine_analysis import add_mine_context
 
@@ -381,7 +381,7 @@ def plot_time_series_target_outliers(df, targets, threshold=2):
     return None
 
 def outlier_detection_and_ouput(df, targets, 
-                                window_dict = {'Tailings_production': 10, 'Waste_rock_production': 7,
+                                window_dict = {'Tailings_production': 10, 'Waste_rock_production': 10,
                                                 'Ore_processed_mass': 10, 'Concentrate_production': 10}, 
                                 threshold=2):
     collected_dfs = []
@@ -407,7 +407,7 @@ def outlier_detection_and_ouput(df, targets,
     # Save results to LaTeX
     df_to_latex(outlier_stat, 'outlier_counts')
 
-    data_to_csv_int(df, 'target_sample_with_outlier_detection')
+    df_to_csv_int(df, 'target_sample_with_outlier_detection_trans')
     return df
     
 
@@ -417,12 +417,12 @@ def main():
 
 
     
-    path = r'data\int\D_target_prio_prep\target_vars_prio_source.csv'
+    path = r'data\int\D_target_prio_prep\target_vars_prio_source_trans.csv'
 
     prod = pd.read_csv(path)
     targets = ['Tailings_production', 'Waste_rock_production', 'Ore_processed_mass', 'Concentrate_production']
     
-    plot_time_series_target_outliers(prod, targets)
+    outlier_detection_and_ouput(prod, targets)
     
     
     return None

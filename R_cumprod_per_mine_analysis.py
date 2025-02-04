@@ -570,14 +570,13 @@ def get_random_ids(data, n):
 
 
 def explo_obs_vs_sim_error_prod(data):
-    data.rename(columns={'f': 'Simulated'}, inplace=True)
+    data.rename(columns={'f_mean': 'Simulated', 
+                         'f_upper_ci': 'Conf_upper',
+                         'f_lower_ci': 'Conf_lower'}, inplace=True)
 
     data['Start_up_year'] = data['Start_up_year'].astype(int)
 
     data['Year'] = data['Year'] + data['Start_up_year']
-
-    data['Conf_upper'] = data['Simulated'] + 1.96 * data['f_err']
-    data['Conf_lower'] = data['Simulated'] - 1.96 * data['f_err']
 
     data['Prop_id'] = data['Prop_id'].astype('category')
 
@@ -603,9 +602,9 @@ def explo_obs_vs_sim_error_prod(data):
                 # Confidence interval as a shaded area
                 + geom_ribbon(aes(ymin='Conf_lower', ymax='Conf_upper', fill = 'Model'), alpha=0.3)
                 # Simulated values as lines
-                + geom_line(aes(y='Simulated'))
+                + geom_line(aes(y='Simulated'), size = 1)
                 # Observed values as points
-                + geom_point(aes(y='Observed'), color='black', size=1.5)
+                + geom_point(aes(y='Observed'), color='black', size = 2)
                 # Facet by Prop_id
                 + facet_wrap('~Prop_name', scales='free', ncol=5)
                 + theme_minimal()
@@ -622,14 +621,13 @@ def explo_obs_vs_sim_error_prod(data):
 def explo_obs_vs_sim_error_cumprod(data):
 
 
-    data.rename(columns={'F_n': 'Simulated'}, inplace=True)
+    data.rename(columns={'F_mean': 'Simulated', 
+                         'F_upper_ci': 'Conf_upper',
+                         'F_lower_ci': 'Conf_lower'}, inplace=True)
 
     data['Start_up_year'] = data['Start_up_year'].astype(int)
 
     data['Year'] = data['Year'] + data['Start_up_year']
-
-    data['Conf_upper'] = data['Simulated'] + 1.96 * data['F_err']
-    data['Conf_lower'] = data['Simulated'] - 1.96 * data['F_err']
 
     data['Prop_id'] = data['Prop_id'].astype('category')
 
@@ -710,14 +708,12 @@ def add_mine_context(data):
 def prep_data():
     """Prepares and merges data from multiple sources, adding mine context."""
     
-    # File paths
-    path = r'data\int\D_build_sample_sets\target_vars_prio_source.csv'
-    model_res_path = r'data\int\data_records.csv'
-    model_fits_path = r'data\int\production_model_fits.json'
-    ua_path = r'data\int\M_unc_analysis\cumprod_ua.csv'
+    
+    model_res_path = r'data\int\data_records_trans.csv'
+    model_fits_path = r'data\int\production_model_fits_trans.json'
+    ua_path = r'data\int\M_cumprod_mc_confidence\cumprod_mc_confidence.csv'
 
-    # Load data
-    data = pd.read_csv(path)
+   
     rec = pd.read_csv(model_res_path)
     modelres = pd.read_json(model_fits_path)
     ua = pd.read_csv(ua_path)
@@ -744,25 +740,11 @@ def prep_data():
 
 
 
-def main_plot_obs_sim_error():
-    df = prep_data()
-
-    # Plot the observed vs. simulated values with error bars
-    explo_obs_vs_sim_error_prod(df)
-    
-    
-    return None
 
 
-def main_plot_obs_sim_error_cum():
-    df = prep_data()
 
-    # Plot the observed vs. simulated values with error bars
-    explo_obs_vs_sim_error_cumprod(df)
-    
-    
-    return None
 
 
 if __name__ == '__main__':
-    main_plot_obs_sim_error_cum()
+    df = prep_data()
+    explo_obs_vs_sim_error_cumprod(df)

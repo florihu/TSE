@@ -2,14 +2,19 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
-from util import get_path, save_fig, save_fig_plotnine, df_to_latex
+
 from sklearn.preprocessing import StandardScaler
 from plotnine import *
-from M_prod_model import hubbert_model, hubbert_L_restrict, power_law, femp, prep_data
-from D_load_werner import merge_werner
+
 from matplotlib.ticker import FuncFormatter
 from sklearn.preprocessing import StandardScaler
+from scipy.stats import skew, kurtosis
 
+
+
+from M_prod_model import hubbert_model, hubbert_L_restrict, power_law, femp, prep_data
+from D_load_werner import merge_werner
+from util import get_path, save_fig, save_fig_plotnine, df_to_latex
 
 ############################################ Purpose ############################################
 '''
@@ -22,10 +27,9 @@ This script contains functions to analyze the results of the production model fi
 rename_dict = {'Tailings_production': 'TP', 'Waste_rock_production': 'WRP', 'Ore_processed_mass': 'OP', 'Concentrate_production': 'CP'}
 
 randome_state = 42
+sig = 0.05
 
 ############################################ Functions ############################################
-
-
 
 
 def model_analytics_hist(data, v):
@@ -39,7 +43,20 @@ def model_analytics_hist(data, v):
 
     color_dict = {'femp': '#e08214', 'hubbert': '#542788'}
 
+
+    # Get sample size per target var
+    sample_size = data.groupby(['Target_var', 'Model']).size().reset_index(name='Sample_size')
+    sample_size['Target_var'] = sample_size['Target_var'].replace(rename_dict)
+
+
     data['Target_var'] = data['Target_var'].replace(rename_dict)
+
+    # add sample size to the Target var string
+    data = pd.merge(data, sample_size, on=['Target_var', 'Model'])
+
+    data['Target_var'] = data['Target_var'] + ' (n=' + data['Sample_size'].astype(str) + ')'
+
+    
 
     # Base plot setup
     plot = (
@@ -67,7 +84,11 @@ def summarize_results(data):
     Function to summarize the results of the production model fits.
     '''
     # Group the data by target variable and model, and calculate the mean and standard deviation of the R^2 and RMSE values
-    summary = data.groupby(['Target_var', 'Model'])[['R2', 'RMSE', 'COV']].agg(['mean', 'std']).reset_index()
+    summary = (
+    data.groupby(['Target_var', 'Model'])[['R2', 'RMSE', 'NRMSE']]
+    .agg(['mean', 'std', 'median', skew, kurtosis])
+    .reset_index()
+    )
 
     new_columns = ['_'.join(col).strip() for col in summary.columns[2:].values]
 
@@ -88,7 +109,8 @@ def summarize_results(data):
 
     # reset index, invert and make multi column target ar and model
     summary = summary.reset_index().set_index(['Target_var', 'Model']).T
-    
+    # get two digit decimals
+    summary = summary.round(2)
 
     df_to_latex(summary, 'model_summary', multicolumn=True)
     summary.to_csv(r'data\int\production_model_summary.csv')
@@ -240,7 +262,7 @@ def identify_significant_model(modelres, sig=0.05):
     modelres = modelres.merge(agg[['Prop_id', 'Target_var', 'Class']], on=['Prop_id', 'Target_var'])
 
     # rmse & r2 comparison
-    comp = modelres.groupby(['Prop_id', 'Target_var']).apply(lambda x: x[x.Model =='hubbert']['RMSE']>x[x.Model =='femp']['RMSE'])
+    comp = modelres.groupby(['Prop_id', 'Target_var']).apply(lambda x: x[x.Model =='hubbert']['RMSE'].values[0]>x[x.Model =='femp']['RMSE'].values[0])
 
     # Drop intermediate columns
     modelres = modelres.drop(columns=['femp_significant', 'hubbert_significant'])
@@ -248,7 +270,7 @@ def identify_significant_model(modelres, sig=0.05):
     return modelres
 
 
-def identify_cum_model(modelres, sig=0.05):
+def identify_cum_model(modelres):
     """
     Classify model results based on parameter significance, RMSE, and R2.
     Prefer Hubbert model in case of a trade-off between RMSE and R2.
@@ -290,7 +312,6 @@ def identify_cum_model(modelres, sig=0.05):
     agg['Class'] = agg.apply(classify, axis=1)
 
     return agg
-
 
 
 def class_bar_chart(modelres):
@@ -393,16 +414,21 @@ def sample_size_box(modelres):
     return None
 
 
+#################################################### Main ########################################################
 
-def plot_hist_per_par():
-    pass
+def main_class_bar_chart(modelres):
+    classified = identify_cum_model(modelres)
+    class_bar_chart(classified)
+
+def main_summarize_results(modelres):
+    summarize_results(modelres)
 
 if __name__ == '__main__':
     sig = .05    
     modelres = pd.read_json(r'data\int\production_model_fits_trans.json')
     rec = pd.read_csv(r'data\int\data_records.csv')
-    
-    
-    model_analytics_hist(modelres, 'RMSE')
+    main_summarize_results(modelres)
+
+
     
    

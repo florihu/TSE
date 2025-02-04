@@ -3,7 +3,7 @@ Goal is the SP Werner merge plus the identification of the waste rock sample and
 '''
 import pandas as pd
 from D_sp_data_clean import get_data, var_exp_path
-from util import df_to_latex, data_to_csv_int
+from util import df_to_latex, df_to_csv_int
 import numpy as np
 
 from M_prod_model import prep_data
@@ -184,8 +184,11 @@ def prio_source(df_sp, df_werner, target_vars):
         )
 
      # drop columns that have ore or waste na 
-    result = result[((~result['Ore_processed_mass'].isna() & ~result['Waste_rock_production'].isna()) | 
-                    (~result['Concentrate_production'].isna() & ~result['Tailings_production'].isna()))]
+    result = result[
+    result[['Ore_processed_mass', 'Waste_rock_production', 'Concentrate_production', 'Tailings_production']]
+    .notna()
+    .any(axis=1)
+]
  
     
     # Take only ids that are in the unique_sp_ids
@@ -224,7 +227,7 @@ def prio_source(df_sp, df_werner, target_vars):
     # check if there are duplicate propid start up year pairs after nan removal
     assert len(result[['Prop_id', 'Start_up_year']].dropna().drop_duplicates()) == result[['Prop_id', 'Start_up_year']].dropna()['Prop_id'].nunique(), 'Duplicate propid start up year pairs'
 
-    data_to_csv_int(result, 'target_vars_prio_source')
+    df_to_csv_int(result, 'target_vars_prio_source_trans')
 
     return result
 
@@ -234,8 +237,6 @@ def prio_source(df_sp, df_werner, target_vars):
 lookup = pd.read_excel(var_exp_path, sheet_name='sp_lookup')
 waste_vars = lookup[lookup['Calc_waste_rock']].Var_trans
 tail_vars = lookup[lookup['Calc_tailings']].Var_trans
-
-
 
 
 # Script params

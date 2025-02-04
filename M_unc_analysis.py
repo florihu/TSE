@@ -5,7 +5,7 @@ from scipy import stats
 from tqdm import tqdm
 
 from util import df_to_latex, df_to_csv_int
-from M_prod_model import hubbert_model, femp, hubbert_deriv, femp_deriv
+from M_prod_model import hubbert_model, femp, hubbert_deriv_transformed, femp_deriv_transformed
 
 ###########################################Description############################################
 
@@ -34,50 +34,70 @@ corr_mat = {'hubbert': pd.DataFrame(hubbert_corr_val).T.fillna(0), 'femp': pd.Da
 
 
 ###########################################Functions############################################
-# Hubbert function partial derivatives integration
-def hubbert_partial_R(t, k, t0):
+def hubbert_deriv_logL(t, log_L, log_k, t0):
+    """
+    Partial derivative of Hubbert model with respect to log(L).
+    """
+    L = np.exp(log_L)
+    k = np.exp(log_k)
     return k * np.exp(-k * (t - t0)) / (1 + np.exp(-k * (t - t0)))**2
 
-def hubbert_partial_k(t, R, k, t0):
-    term1 = (1 - k * (t - t0))
-    term2 = 2 * np.exp(-k * (t - t0)) / (1 + np.exp(-k * (t - t0)))
-    return (R * np.exp(-k * (t - t0)) / (1 + np.exp(-k * (t - t0)))**2) * (term1 - term2)
+def hubbert_deriv_logk(t, log_L, log_k, t0):
+    """
+    Partial derivative of Hubbert model with respect to log(k).
+    """
+    L = np.exp(log_L)
+    k = np.exp(log_k)
+    exp_term = np.exp(-k * (t - t0))
+    denominator = (1 + exp_term)**2
+    numerator = L * exp_term * (1 + exp_term) - 2 * L * exp_term * exp_term
+    return numerator / denominator
 
-def hubbert_partial_t0(t, R, k, t0):
-    term1 = 1 - 2 / (1 + np.exp(-k * (t - t0)))
-    return R * k**2 * np.exp(-k * (t - t0)) / (1 + np.exp(-k * (t - t0)))**2 * term1
+def hubbert_deriv_t0(t, log_L, log_k, t0):
+    """
+    Partial derivative of Hubbert model with respect to t0.
+    """
+    L = np.exp(log_L)
+    k = np.exp(log_k)
+    exp_term = np.exp(-k * (t - t0))
+    return L * k * exp_term * exp_term / (1 + exp_term)**2
+
+def femp_deriv_logR0(t, log_R0, C_transformed):
+    """
+    Partial derivative of FEMP model with respect to log(R0).
+    """
+    R0 = np.exp(log_R0)
+    C = 1 / (1 + np.exp(-C_transformed))  # Inverse-logit transformation
+    return -R0 * np.log(1 - C) * (1 - C)**t
+
+def femp_deriv_C_transformed(t, log_R0, C_transformed):
+    """
+    Partial derivative of FEMP model with respect to C_transformed.
+    """
+    R0 = np.exp(log_R0)
+    C = 1 / (1 + np.exp(-C_transformed))  # Inverse-logit transformation
+    exp_term = np.exp(-C_transformed)
+    term_1 = R0 * (1 - C)**t * exp_term / (1 + exp_term)**2
+    term_2 = -R0 * np.log(1 - C) * t * (1 - C)**(t-1) * exp_term / (1 + exp_term)**2
+    return term_1 + term_2
 
 
-# FEMP function partial derivatives integration
-def femp_partial_R0(t, C):
-    return -np.log(1 - C) * (1 - C)**t
-
-def femp_partial_C(t, R0, C):
-    term1 = (1 - C)**(t-1)
-    term2 = t * (1 - C)**t * np.log(1 - C)
-    return -R0 * (term1 + term2)
 
 
-def integrate_hubbert_partial_R(t_series, k, t0):
-    return [quad(hubbert_partial_R, t_series[0], t_max, args=(k, t0))[0] for t_max in t_series]
+def integrate_hubbert_partial_L(t_series, log_k, t0):
+    return [quad(hubbert_deriv_logL, t_series[0], t_max, args=(log_k, t0))[0] for t_max in t_series]
 
-def integrate_hubbert_partial_k(t_series, R, k, t0):
-    return [quad(hubbert_partial_k, t_series[0], t_max, args=(R, k, t0))[0] for t_max in t_series]
+def integrate_hubbert_partial_k(t_series, log_L, log_k, t0):
+    return [quad(hubbert_deriv_logk, t_series[0], t_max, args=(log_L, log_k, t0))[0] for t_max in t_series]
 
-def integrate_hubbert_partial_t0(t_series, R, k, t0):
-    return [quad(hubbert_partial_t0, t_series[0], t_max, args=(R, k, t0))[0] for t_max in t_series]
+def integrate_hubbert_partial_t0(t_series, log_L, log_k, t0):
+    return [quad(hubbert_deriv_t0, t_series[0], t_max, args=(log_L, log_k, t0))[0] for t_max in t_series]
 
-def integrate_femp_partial_R0(t_series, C):
-    return [quad(femp_partial_R0, t_series[0], t_max, args=(C,))[0] for t_max in t_series]
+def integrate_femp_partial_R0(t_series, C_transformed):
+    return [quad(femp_deriv, t_series[0], t_max, args=(C_transformed,))[0] for t_max in t_series]
 
-def integrate_femp_partial_C(t_series, R0, C):
-    return [quad(femp_partial_C, t_series[0], t_max, args=(R0, C))[0] for t_max in t_series]
-
-def integrate_femp_deriv(t_series, R0, C):
-    return [quad(femp_deriv, t_series[0], t_max, args=(R0, C))[0] for t_max in t_series]
-
-def integrate_hubbert_deriv(t_series, L, k, t0):
-    return [quad(hubbert_deriv, t_series[0], t_max, args=(L, k, t0))[0] for t_max in t_series]
+def integrate_femp_partial_C(t_series, log_R0, C_transformed):
+    return [quad(femp_deriv_C_transformed, t_series[0], t_max, args=(log_R0, C_transformed))[0] for t_max in t_series]
 
 
 
@@ -91,69 +111,90 @@ def gaussian_error_propagation_ts(partial_derivatives_ts, variances, covariances
             )
     return np.sqrt(error_squared_ts)
 
+
+
 def initiate_gauss_per_mine(t_max, model, **kwargs):
 
-    t = np.arange(0, t_max )
+    t = np.arange(0, t_max)
 
     if model == 'hubbert':
-        L = kwargs['P1_value']
-        k = kwargs['P2_value']
+        log_L = np.log(kwargs['P1_value'])
+        log_k = np.log(kwargs['P2_value'])
         t0 = kwargs['P3_value']
 
-        partial_derivatives = np.array([hubbert_partial_R(t, k, t0), 
-                               hubbert_partial_k(t, L, k, t0), 
-                               hubbert_partial_t0(t, L, k, t0)]).T
-        
-        partial_derivatives_integrated = np.array([integrate_hubbert_partial_R(t, k, t0), 
-                                          integrate_hubbert_partial_k(t, L, k, t0), 
-                                          integrate_hubbert_partial_t0(t, L, k, t0)]).T
-        
-        L_var = kwargs['P1_err']
-        k_var = kwargs['P2_err']
-        t0_var = kwargs['P3_err']
+        # Compute derivatives
+        partial_derivatives = np.array([
+            hubbert_deriv_logL(t, log_k, t0),
+            hubbert_deriv_logk(t, log_L, log_k, t0),
+            hubbert_deriv_t0(t, log_L, log_k, t0)
+        ]).T
+
+        partial_derivatives_integrated = np.array([
+            integrate_hubbert_partial_L(t, log_k, t0),
+            integrate_hubbert_partial_k(t, log_L, log_k, t0),
+            integrate_hubbert_partial_t0(t, log_L, log_k, t0)
+        ]).T
+
+        # Convert variances
+        L_var = (kwargs['P1_err'])**2  # log variance approximation
+        k_var = (kwargs['P2_err'])**2
+        t0_var = kwargs['P3_err']**2 
+
 
         variances = [L_var, k_var, t0_var]
-        corr = corr_mat[model]
-        covariances = np.array([[variances[i] * variances[j] * corr.iloc[i, j] for j in range(len(variances))] for i in range(len(variances))])
+        covariances = np.array([
+            [variances[i] * variances[j] * corr_mat[model].iloc[i, j]
+             for j in range(len(variances))] for i in range(len(variances))
+        ])
 
+        L, k = np.exp(log_L), np.exp(log_k)
         f = hubbert_deriv(t, L, k, t0)
         F_a = hubbert_model(t, L, k, t0)
         F_n = integrate_hubbert_deriv(t, L, k, t0)
 
+        # Error propagation
         f_err = gaussian_error_propagation_ts(partial_derivatives, variances, covariances)
         F_err = gaussian_error_propagation_ts(partial_derivatives_integrated, variances, covariances)
 
         
-    
+
     elif model == 'femp':
-        r0 = kwargs['P1_value']
-        c = kwargs['P2_value']
 
-        partial_derivatives = np.array([femp_partial_R0(t, c),
-                                 femp_partial_C(t, r0, c)]).T
-        
-        partial_derivatives_integrated = np.array([integrate_femp_partial_R0(t, c),
-                                            integrate_femp_partial_C(t, r0, c)]).T
-        
-        r0_var = kwargs['P1_err']
-        c_var = kwargs['P2_err']
+        log_R0 = np.log(kwargs['P1_value'])
+        C_transformed =  np.log(kwargs['P2_value'] / (1 - kwargs['P2_value'])) # logit-transformed C
 
-        variances = [r0_var, c_var]
-        corr = corr_mat[model]
-        covariances = np.array([[variances[i] * variances[j] * corr.iloc[i, j] for j in range(len(variances))] for i in range(len(variances))])
-        
+        # Compute derivatives
+        partial_derivatives = np.array([
+            femp_deriv_logR0(t, C_transformed),
+            femp_deriv_C_transformed(t, log_R0, C_transformed)
+        ]).T
 
-        f = femp_deriv(t, r0, c)
-        F_a = femp(t, r0, c)
-        F_n = integrate_femp_deriv(t, r0, c)
+        partial_derivatives_integrated = np.array([
+            integrate_femp_partial_R0(t, C_transformed),
+            integrate_femp_partial_C(t, log_R0, C_transformed)
+        ]).T
 
+        # Convert variances
+        R0_var = (kwargs['P1_err'])**2  # log variance approximation
+        C_var = (kwargs['P2_err'])**2
 
+        variances = [R0_var, C_var]
+        covariances = np.array([
+            [variances[i] * variances[j] * corr_mat[model].iloc[i, j]
+             for j in range(len(variances))] for i in range(len(variances))
+        ])
+
+        # Compute model outputs
+        R0, C = np.exp(log_R0), 1 / (1 + np.exp(-C_transformed))
+        f = femp_deriv_transformed(t, R0, C)
+        F_a = femp(t, R0, C)
+        F_n = integrate(t, R0, C)
+
+        # Error propagation
         f_err = gaussian_error_propagation_ts(partial_derivatives, variances, covariances)
         F_err = gaussian_error_propagation_ts(partial_derivatives_integrated, variances, covariances)
 
     return t, f, F_a, F_n, f_err, F_err
-
-
 
 
 ###########################################Main Tasks############################################
@@ -220,7 +261,7 @@ def main_calc_corr_tab():
 
 def main_calc_error():
 
-    res = pd.read_json(r'data\int\production_model_fits.json')
+    res = pd.read_json(r'data\int\production_model_fits_trans.json')
 
     prio =pd.read_csv(r'data\int\D_target_prio_prep\target_vars_prio_source.csv')
 

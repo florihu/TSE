@@ -6,12 +6,25 @@ import numpy as np
 from scipy.stats import zscore, norm, lognorm
 from statsmodels.tsa.seasonal import seasonal_decompose
 import numpy as np
+import seaborn as sns
+from itertools import product
 
 from M_prod_model import hubbert_model, femp, femp_deriv, hubbert_deriv
 from util import save_fig_plotnine , save_fig, df_to_latex
 from D_sp_data_clean import get_data
 
-import seaborn as sns
+
+
+
+#########################################Parameters##############################################
+
+np.random.seed(42)
+
+# model color dict
+
+model_color = {'femp': '#542788', 'hubbert': '#e08214'}
+
+#########################################Functions################################################
 
 def hist_per_target(data, targets):
 
@@ -552,195 +565,110 @@ def calculate_stock_row(row):
         return hubbert_model(row['Year'], row['P1_value'], row['P2_value'], row['P3_value'])
 
 
-
-def obs_pred_femp_hubbert(df, modelres, targets, fig_manu = False):
-    # Convert observed values in df to mega tonnes
-    df['Observed'] = df['Observed'] / 1e6  # Assuming data is in tonnes
-    df['Residual'] = df['Residual'] / 1e6  # Assuming data is in tonnes
-
-    # Create a DataFrame with all possible years for each Prop_id, Target_var, and Model
-    df_pred = (
-        df.groupby(['Prop_id', 'Target_var', 'Model'])
-        .apply(lambda x: pd.DataFrame({'Year': np.arange(0, x['Year'].max() + 1)}))
-        .reset_index(level=[0, 1, 2])
-    )
+def get_random_ids(data, n):
+    return np.random.choice(data['Prop_id'].unique(), size=n, replace=False )
 
 
-    # Merge predictions with results
-    df_pred = df_pred.merge(modelres, on=['Prop_id', 'Target_var', 'Model'], how='left')
+def explo_obs_vs_sim_error_prod(data):
+    data.rename(columns={'f': 'Simulated'}, inplace=True)
 
-    # Calculate predicted values and confidence intervals
-    df_pred['Prod_pred'] = df_pred.apply(calculate_prod_row, axis=1)
+    data['Start_up_year'] = data['Start_up_year'].astype(int)
 
-    df_pred['Prod_lower_95ci'] = df_pred['Prod_pred'] - 1.96 * df_pred['RMSE']
-    df_pred['Prod_high_95ci'] = df_pred['Prod_pred'] + 1.96 * df_pred['RMSE']
+    data['Year'] = data['Year'] + data['Start_up_year']
 
+    data['Conf_upper'] = data['Simulated'] + 1.96 * data['f_err']
+    data['Conf_lower'] = data['Simulated'] - 1.96 * data['f_err']
 
-    df_pred['Stock_pred'] = df_pred.apply(calculate_stock_row, axis=1)
+    data['Prop_id'] = data['Prop_id'].astype('category')
 
-    df_pred['Stock_lower_95ci'] = df_pred['Stock_pred'] - 1.96 * df_pred['RMSE']
-    df_pred['Stock_high_95ci'] = df_pred['Stock_pred'] + 1.96 * df_pred['RMSE']
-
-    # Replace non zero confidence intervals with zero
-    df_pred.loc[df_pred['Prod_lower_95ci'] < 0, 'Prod_lower_95ci'] = 0
-    df_pred.loc[df_pred['Stock_lower_95ci'] < 0, 'Stock_lower_95ci'] = 0
+    data['Simulated'] = data['Simulated'] / 10**6 # Convert to Mt
+    data['Observed'] = data['Observed'] / 10**6 # Convert to Mt
+    data['Conf_upper'] = data['Conf_upper'] / 10**6 # Convert to Mt
+    data['Conf_lower'] = data['Conf_lower'] / 10**6 # Convert to Mt
 
 
-    #Convert to Mt
-    df_pred['Prod_pred'] = df_pred['Prod_pred'] / 1e6
-    df_pred['Prod_lower_95ci'] = df_pred['Prod_lower_95ci'] / 1e6
-    df_pred['Prod_high_95ci'] = df_pred['Prod_high_95ci'] / 1e6
+    for t, m in product(data['Target_var'].unique(), data['Model'].unique()):
 
-    df_pred['Stock_pred'] = df_pred['Stock_pred'] / 1e6
-    df_pred['Stock_lower_95ci'] = df_pred['Stock_lower_95ci'] / 1e6
-    df_pred['Stock_high_95ci'] = df_pred['Stock_high_95ci'] / 1e6
-
-    df_pred = df_pred.merge(df[['Prop_id', 'Prop_name']], on='Prop_id', how='left')
-
-    if fig_manu:
-        w= 16
-        h=12
-        size = 12
-        # Get the top 4 mines with the most data points for the current target variable
-        mine_partial_names = ['Escondida','Charcas', 'Ramu']
-
-        # get unique prop ids where prop name contains the partial name
-        mine_select = df[df['Prop_name'].str.contains('|'.join(mine_partial_names))]['Prop_id'].unique()
-
-        type = 'manu'
-
-    else:   
-        w= 24
-        h=24
-        size = 8
-        # get random 49 prop ids
-        mine_select = np.random.choice(df['Prop_id'].unique(), size=49, replace=False)
-        type = 'explo'
-
-    # Plot for each target variable
-    for t in targets:
-        # Filter data for the selected target
-        df_pred_t = df_pred[
-            (df_pred['Prop_id'].isin(mine_select)) & 
-            (df_pred['Target_var'] == t) & 
-            (df_pred['Model'] == 'hubbert')
-        ]
+        subset = data[(data['Target_var'] == t) & (data['Model'] == m)]
         
-        if df_pred_t.empty:
-            continue
+        if subset.empty:
+            continue  # Skip if no data for this combination
 
-        df_t = df[
-            (df['Prop_id'].isin(mine_select)) & 
-            (df['Target_var'] == t) & 
-            (df['Model'] == 'hubbert')
-        ]
+        ids = get_random_ids(data, 40)
 
-        # Prepare a unified DataFrame for plotting
-        df_pred_t_melted = df_pred_t.melt(
-            id_vars=['Year', 'Prop_name'], 
-            value_vars=['Prod_pred', 'Prod_lower_95ci', 'Prod_high_95ci'], 
-            var_name='Category', 
-            value_name='Value'
-        )
-        df_pred_t_melted['Category'] = df_pred_t_melted['Category'].replace({
-            'Prod_pred': 'Predicted',
-            'Prod_lower_95ci': 'Lower CI',
-            'Prod_high_95ci': 'Upper CI'
-        })
+        subset = subset[subset['Prop_id'].isin(ids)]
 
-        df_t_melted = df_t.melt(
-            id_vars=['Year', 'Prop_name'], 
-            value_vars=['Observed', 'Residual'], 
-            var_name='Category', 
-            value_name='Value'
-        )
-        df_t_melted['Category'] = df_t_melted['Category'].replace({
-            'Observed': 'Observed',
-            'Residual': 'Residual'
-        })
 
-        # Combine the DataFrames
-        df_combined = pd.concat([df_pred_t_melted, df_t_melted], ignore_index=True)
-
-        # Define colors for categories
-        color_dict = {
-            'Predicted': '#542788',
-            'Lower CI': '#542788',
-            'Upper CI': '#542788',
-            'Observed': 'black',
-            'Residual': '#c51b7d'
-        }
-
-        # Create the plot
-        p = (
-            ggplot(df_combined, aes(x='Year', y='Value', color='Category', fill='Category'))
-            + geom_line(data=df_combined[df_combined['Category'] == 'Predicted'], size=1)
-            + geom_ribbon(aes(ymin='Value', ymax='Value'),
-                data=df_combined[df_combined['Category'].isin(['Lower CI', 'Upper CI'])], 
-                alpha=0.2
-            )
-            + geom_point(
-                data=df_combined[df_combined['Category'] == 'Observed'], 
-                size=2, 
-                shape='o'
-            )
-            + geom_point(
-                data=df_combined[df_combined['Category'] == 'Residual'], 
-                size=2, 
-                shape='x'
-            )
-            + geom_smooth(
-                data=df_combined[df_combined['Category'] == 'Residual'], 
-                method='lm', 
-                se=True, 
-                alpha=0.2,
-                linetype='dashed'
-            )
-            + facet_wrap('~Prop_name', scales='free', ncol=3)
-            + labs(
-                x='Year',
-                y=f'{t} (Mt)',
-                color='Category',
-                fill='Category'
-            )
-            + theme_minimal()
-            + scale_color_manual(values=color_dict)
-            + scale_fill_manual(values=color_dict)
-            + theme(
-                legend_position='bottom', 
-                text=element_text(size=size), 
-                subplots_adjust={"wspace": 1, "hspace": 1}
-            )
-        )
-
+        plot =  (ggplot(subset, aes(x='Year', y='Simulated', fill = 'Model'))
+                # Confidence interval as a shaded area
+                + geom_ribbon(aes(ymin='Conf_lower', ymax='Conf_upper', fill = 'Model'), alpha=0.3)
+                # Simulated values as lines
+                + geom_line(aes(y='Simulated'))
+                # Observed values as points
+                + geom_point(aes(y='Observed'), color='black', size=1.5)
+                # Facet by Prop_id
+                + facet_wrap('~Prop_name', scales='free', ncol=5)
+                + theme_minimal()
+                + labs(x='Year', y='Value (Mt)')
+                + theme(legend_position='none')
+                + scale_color_manual(values=[model_color[m]])
+                )
+        
+        
+        save_fig_plotnine(plot, f'{t}_{m}_obs_vs_sim_error_prod.png', w=12, h=18 )
         
 
-        # Save the plot
-        save_fig_plotnine(p, f'{t}_prod__obs_pred_{type}.png', w=w, h=h)
 
-    
+def explo_obs_vs_sim_error_cumprod(data):
 
 
+    data.rename(columns={'F_n': 'Simulated'}, inplace=True)
 
-        # p1 = (
-        #     ggplot(df_pred_t, aes(x='Year', y='Stock_pred', color='Model'))
-        #     + geom_line()
-        #     + geom_ribbon(aes(ymin='Stock_lower_95ci', ymax='Stock_high_95ci', fill='Model'), alpha=0.2)
-        #     + facet_wrap('~Prop_name', scales='free')
-        #     + labs(
-        #         x='Year',
-        #         y=f'{t} cumulative (Mt)',
-        #     )
-        #     + theme_minimal()
-        #     + scale_color_manual(values=color_dict)
-        #     + theme(legend_position='bottom', text=element_text(size=size), subplots_adjust={"wspace": 1, "hspace": 1})
-        # )
+    data['Start_up_year'] = data['Start_up_year'].astype(int)
 
-        # if fig_manu:
-        #     # legend off
-        #     p1 = p1 + theme(legend_position='none')
-        # # Save the plot
-        # save_fig_plotnine(p1, f'{t}_stock__obs_pred_{type}.png', w=w, h=h)
+    data['Year'] = data['Year'] + data['Start_up_year']
+
+    data['Conf_upper'] = data['Simulated'] + 1.96 * data['F_err']
+    data['Conf_lower'] = data['Simulated'] - 1.96 * data['F_err']
+
+    data['Prop_id'] = data['Prop_id'].astype('category')
+
+    data['Simulated'] = data['Simulated'] / 10**6 # Convert to Mt
+    data['Conf_upper'] = data['Conf_upper'] / 10**6 # Convert to Mt
+    data['Conf_lower'] = data['Conf_lower'] / 10**6 # Convert to Mt
+
+    data['Conf_lower'] = data['Conf_lower'].apply(lambda x: 0 if x < 0 else x)
+
+
+    for t, m in product(data['Target_var'].unique(), data['Model'].unique()):
+
+        subset = data[(data['Target_var'] == t) & (data['Model'] == m)]
+
+        
+        if subset.empty:
+            continue  # Skip if no data for this combination
+
+        ids = get_random_ids(data, 40)
+
+        subset = subset[subset['Prop_id'].isin(ids)]
+
+
+        plot =  (ggplot(subset, aes(x='Year', y='Simulated', color = 'Model'))
+                # Confidence interval as a shaded area
+                + geom_ribbon(aes(ymin='Conf_lower', ymax='Conf_upper', fill = 'Model'), alpha=0.3)
+                # Simulated values as lines
+                + geom_line(aes(y='Simulated'))
+
+                + facet_wrap('~Prop_name', scales='free', ncol=5)
+                + theme_minimal()
+                + labs(x='Year', y='Value (Mt)')
+                + theme(legend_position='none')
+                + scale_color_manual(values=[model_color[m] for m in data['Model'].unique()])
+                )
+        
+        
+        save_fig_plotnine(plot, f'{t}_{m}_obs_vs_sim_error_cumprod.png', w=12, h=18 )
+        
 
 def hubbert_k_vs_L(modelres, targets):
 
@@ -778,26 +706,63 @@ def add_mine_context(data):
 
     return c_data
 
-def main():
+
+def prep_data():
+    """Prepares and merges data from multiple sources, adding mine context."""
     
+    # File paths
     path = r'data\int\D_build_sample_sets\target_vars_prio_source.csv'
-
     model_res_path = r'data\int\data_records.csv'
+    model_fits_path = r'data\int\production_model_fits.json'
+    ua_path = r'data\int\M_unc_analysis\cumprod_ua.csv'
+
+    # Load data
     data = pd.read_csv(path)
-    targets = ['Tailings_production', 'Waste_rock_production', 'Ore_processed_mass', 'Concentrate_production']
-    res = pd.read_csv(model_res_path)
-    modelres = pd.read_json(r'data\int\production_model_fits.json')
+    rec = pd.read_csv(model_res_path)
+    modelres = pd.read_json(model_fits_path)
+    ua = pd.read_csv(ua_path)
 
+    # Subset relevant columns
+    rec_sub = rec[['Prop_id', 'Target_var', 'Model', 'Year', 'Observed']]
+
+    # Ensure 'Year' is integer
+    rec_sub['Year'] = rec_sub['Year'].astype(int)
+
+    ua.rename(columns={'Time_period': 'Year'}, inplace=True)
+    ua['Year'] = ua['Year'].astype(int)
+
+    # Merge uncertainty analysis (ua) with observed data records
+    merged_data = ua.merge(rec_sub, on=['Prop_id', 'Target_var', 'Model', 'Year'], how='left')
+
+    # Add mine context
+    merged_data = add_mine_context(merged_data)
+
+    return merged_data
+
+
+#########################################Main Functions ##############################################
+
+
+
+def main_plot_obs_sim_error():
+    df = prep_data()
+
+    # Plot the observed vs. simulated values with error bars
+    explo_obs_vs_sim_error_prod(df)
     
-    merge = add_mine_context(data)
     
-    #modelres = modelres.merge(site[['Prop_id', 'Prop_name', 'Primary_commodity']], on='Prop_id', how='left')
-
-    obs_pred_femp_hubbert(merge, modelres, targets, fig_manu = True)
-
     return None
 
 
+def main_plot_obs_sim_error_cum():
+    df = prep_data()
+
+    # Plot the observed vs. simulated values with error bars
+    explo_obs_vs_sim_error_cumprod(df)
+    
+    
+    return None
+
 
 if __name__ == '__main__':
-    main()
+    main_plot_obs_sim_error_cum()

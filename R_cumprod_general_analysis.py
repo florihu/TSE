@@ -58,7 +58,7 @@ def model_analytics_hist(data, v):
     
 
     # Save and draw the plot
-    save_fig_plotnine(plot, f'{v}_prodmod_facet_by_model.png', w= 14, h=10)
+    save_fig_plotnine(plot, f'{v}_prodmod_facet_by_model_trans.png', w= 14, h=10)
     
     return None
 
@@ -369,7 +369,6 @@ def box_plot(data, v):
     return plot
 
 
-
 def sample_size_box(modelres):
 
     subset = modelres[['Target_var',  'Sample_size', 'Sample_']]
@@ -394,15 +393,16 @@ def sample_size_box(modelres):
     return None
 
 
+
+def plot_hist_per_par():
+    pass
+
 if __name__ == '__main__':
     sig = .05    
-    modelres = pd.read_json(r'data\int\production_model_fits.json')
+    modelres = pd.read_json(r'data\int\production_model_fits_trans.json')
     rec = pd.read_csv(r'data\int\data_records.csv')
     
     
-    res_sig= identify_cum_model(modelres, sig)
-
-    class_bar_chart(res_sig)
-    
+    model_analytics_hist(modelres, 'RMSE')
     
    

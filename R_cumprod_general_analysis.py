@@ -12,7 +12,7 @@ from scipy.stats import skew, kurtosis
 
 
 
-from M_prod_model import hubbert_model, hubbert_L_restrict, power_law, femp, prep_data
+from M_prod_model import hubbert_model, femp, prep_data
 from D_load_werner import merge_werner
 from util import get_path, save_fig, save_fig_plotnine, df_to_latex
 
@@ -427,8 +427,9 @@ if __name__ == '__main__':
     sig = .05    
     modelres = pd.read_json(r'data\int\production_model_fits_trans.json')
     rec = pd.read_csv(r'data\int\data_records.csv')
-    main_summarize_results(modelres)
-
+    
+    for i in ['RMSE', 'R2', 'NRMSE']:
+        model_analytics_hist(modelres, i)
 
     
    

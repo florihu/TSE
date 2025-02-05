@@ -570,11 +570,14 @@ def get_random_ids(data, n):
 
 
 def explo_obs_vs_sim_error_prod(data):
-    data.rename(columns={'f_mean': 'Simulated', 
-                         'f_upper_ci': 'Conf_upper',
-                         'f_lower_ci': 'Conf_lower'}, inplace=True)
+    data.rename(columns={'f_p_star': 'Simulated', 
+                         'f_upper_ci_norm': 'Conf_upper',
+                         'f_lower_ci_norm': 'Conf_lower'}, inplace=True)
 
     data['Start_up_year'] = data['Start_up_year'].astype(int)
+
+    data['Conf_lower'] = data['Conf_lower'] * data['Simulated']
+    data['Conf_upper'] = data['Conf_upper'] * data['Simulated']
 
     data['Year'] = data['Year'] + data['Start_up_year']
 
@@ -747,4 +750,4 @@ def prep_data():
 
 if __name__ == '__main__':
     df = prep_data()
-    explo_obs_vs_sim_error_cumprod(df)
+    explo_obs_vs_sim_error_prod(df)

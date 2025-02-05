@@ -6,7 +6,8 @@ from itertools import product
 from plotnine import *
 from itertools import product
 from scipy.stats import shapiro, kstest, anderson, norm, lognorm, beta, truncnorm
-
+import matplotlib.pyplot as plt
+from scipy.stats import bootstrap
 
 from util import df_to_csv_int
 from M_prod_model import hubbert_deriv, femp_deriv, hubbert_model, femp, safe_exp
@@ -47,28 +48,18 @@ def regularize_parameters(alpha, beta, epsilon=1e-5):
     return max(alpha, epsilon), max(beta, epsilon)
 
 
+def trunc_norm(value, error, a = 0, b=np.inf):
+     a_s, b_s = (a-value) / error, (b-value) / error
+     return truncnorm.rvs(a_s, b_s, loc=value, scale=error, size=iterations)
+
 def initiate_mc_per_mine(t_max, model, P1_value, P2_value, P3_value, P1_err, P2_err, P3_err):
      t = np.arange(t_max)
 
      if model == 'hubbert':
-            # P1 lognormal distributed
-            p1_log_mean = np.log(P1_value / np.sqrt(1 + (P1_err / P1_value) ** 2))
-            p1_log_std = np.sqrt(np.log(1 + (P1_err / P1_value) ** 2))
-
-            p1_log = np.random.normal(p1_log_mean, p1_log_std, iterations)
-
-            p1 = safe_exp(p1_log)
-
-            # P2 log normal distributed
-            p2_log_mean = np.log(P2_value / np.sqrt(1 + (P2_err / P2_value) ** 2))
-            p2_log_std = np.sqrt(np.log(1 + (P2_err / P2_value) ** 2))
-            p2_log = np.random.normal(p2_log_mean, p2_log_std, iterations)
-
-            p2 = safe_exp(p2_log)
-
-            # P3 normal distributed
-            p3 = np.random.normal(P3_value, P3_err, iterations)
-
+            p1 = trunc_norm(P1_value, P1_err)
+            p2 = trunc_norm(P2_value, P2_err)
+            p3 = trunc_norm(P3_value, P3_err)
+               
             # calculate for each iteration the production and the integral. Estimate for every time step the 95% confidence interval interval
             f = np.zeros((iterations, t_max))
             F = np.zeros((iterations, t_max))
@@ -76,13 +67,15 @@ def initiate_mc_per_mine(t_max, model, P1_value, P2_value, P3_value, P1_err, P2_
             for i in range(iterations):
                 f[i, :], F[i, :] = hubbert_deriv(t, p1[i], p2[i], p3[i]), hubbert_model(t, p1[i], p2[i], p3[i])
             
-
             # return std for f and F
             f_err = np.nanstd(f, axis=0)  # std ignoring NaNs
             F_err = np.nanstd(F, axis=0)  # std ignoring NaNs
 
             f_mean = np.nanmean(f, axis=0)  # mean ignoring NaNs
             F_mean = np.nanmean(F, axis=0)  # mean ignoring NaNs
+
+            f_p_star = hubbert_deriv(t, P1_value, P2_value, P3_value)
+            F_p_star = hubbert_model(t, P1_value, P2_value, P3_value)
 
              # assert that the means are not nan
             assert not np.isnan(f_mean).any(), 'f_mean contains NaNs'
@@ -95,26 +88,21 @@ def initiate_mc_per_mine(t_max, model, P1_value, P2_value, P3_value, P1_err, P2_
             F_lower_ci = np.nanpercentile(F, lower_percentile, axis=0)  # Lower CI for F
             F_upper_ci = np.nanpercentile(F, upper_percentile, axis=0)  # Upper CI for F
 
+            f_lower_ci_norm = (f_lower_ci / f_mean) 
+            f_upper_ci_norm = (f_upper_ci / f_mean) 
 
-            return t, f_mean, F_mean, f_err, F_err, f_lower_ci, f_upper_ci, F_lower_ci, F_upper_ci
+            F_lower_ci_norm = (F_lower_ci / F_mean) 
+            F_upper_ci_norm = (F_upper_ci / F_mean) 
+
+
+
+            return t, f_mean, F_mean, f_err, F_err, f_lower_ci, f_upper_ci, F_lower_ci, F_upper_ci, f_lower_ci_norm, f_upper_ci_norm, F_lower_ci_norm, F_upper_ci_norm, f_p_star, F_p_star
 
           
      elif model == 'femp':
-            # P1 lognormal distributed
-            p1_log_mean = np.log(P1_value / np.sqrt(1 + (P1_err / P1_value) ** 2))
-            p1_log_std = np.sqrt(np.log(1 + (P1_err / P1_value) ** 2))
-            p1_log = np.random.normal(p1_log_mean, p1_log_std, iterations)
-            p1 = safe_exp(p1_log)          
-
-            # Truncation bounds in the original scale
-            a, b = 0, 1
-
-            # Scale the bounds to the standard normal scale
-            a_scaled = (a - P2_value) / P2_err
-            b_scaled = (b - P2_value) / P2_err
-
-            # Generate samples from the truncated normal distribution
-            p2 = truncnorm.rvs(a_scaled, b_scaled, loc=P2_value, scale=P2_err, size=iterations)
+           
+            p1 = trunc_norm(P1_value, P1_err)
+            p2 = trunc_norm(P2_value, P2_err, b=1)
     
 
             # calculate for each iteration the production and the integral. Estimate for every time step the 95% confidence interval interval
@@ -130,6 +118,9 @@ def initiate_mc_per_mine(t_max, model, P1_value, P2_value, P3_value, P1_err, P2_
 
             f_mean = f.mean(axis=0)
             F_mean = F.mean(axis=0)
+
+            f_p_star = femp_deriv(t, P1_value, P2_value)
+            F_p_star = femp(t, P1_value, P2_value )
             
             # assert that the means are not nan
             assert not np.isnan(f_mean).any(), 'f_mean contains NaNs'
@@ -141,7 +132,13 @@ def initiate_mc_per_mine(t_max, model, P1_value, P2_value, P3_value, P1_err, P2_
             F_lower_ci = np.percentile(F, lower_percentile, axis=0)
             F_upper_ci = np.percentile(F, upper_percentile, axis=0)
 
-            return np.arange(t_max), f_mean, F_mean, f_err, F_err, f_lower_ci, f_upper_ci, F_lower_ci, F_upper_ci
+            f_lower_ci_norm = f_lower_ci / f_mean
+            f_upper_ci_norm = f_upper_ci / f_mean
+
+            F_lower_ci_norm = F_lower_ci / F_mean
+            F_upper_ci_norm = F_upper_ci / F_mean
+
+            return np.arange(t_max), f_mean, F_mean, f_err, F_err, f_lower_ci, f_upper_ci, F_lower_ci, F_upper_ci, f_lower_ci_norm, f_upper_ci_norm, F_lower_ci_norm, F_upper_ci_norm, f_p_star, F_p_star
 
      else:
             raise ValueError('Model not recognized')
@@ -175,7 +172,7 @@ def main_calc_error():
             t_max = group['Delta_periods'].iloc[0]
 
             # Pass the values to the initiation function
-            t, f_mean, F_mean, f_err, F_err, f_lower_ci, f_upper_ci, F_lower_ci, F_upper_ci  = initiate_mc_per_mine(
+            t, f_mean, F_mean, f_err, F_err, f_lower_ci, f_upper_ci, F_lower_ci, F_upper_ci, f_lower_ci_norm, f_upper_ci_norm, F_lower_ci_norm, F_upper_ci_norm, f_p_star, F_p_star  = initiate_mc_per_mine(
                 t_max, m, **group[['P1_value', 'P2_value', 'P3_value', 'P1_err', 'P2_err', 'P3_err']].iloc[0]
             )
 
@@ -193,6 +190,12 @@ def main_calc_error():
                 'F_err': F_err,
                 'F_lower_ci': F_lower_ci,
                 'F_upper_ci': F_upper_ci,
+                'f_lower_ci_norm': f_lower_ci_norm,
+                'f_upper_ci_norm': f_upper_ci_norm,
+                'F_lower_ci_norm': F_lower_ci_norm,
+                'F_upper_ci_norm': F_upper_ci_norm,
+                'f_p_star': f_p_star,
+                'F_p_star': F_p_star,
                 'Start_up_year': np.array([group['Start_up_year'].values[0]] * len(t))
             }))
 

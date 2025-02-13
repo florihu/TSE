@@ -8,6 +8,16 @@ import concurrent.futures
 from tqdm import tqdm
 from util import data_to_csv_int
 
+###################################################Purpose#######################################################
+
+# This scripts allocates the lithographical classes to the polygons
+
+
+###################################################Parameters###################################################
+
+
+
+####################################################Functions#####################################################
 def unary_union_for_group(group):
 
     """Helper function to perform unary_union for each group."""
@@ -60,6 +70,8 @@ def li_class_to_columns(join):
     
     return join
 
+
+#####################################################Main########################################################
 def main():
     li_path = 'data\LiMW_GIS 2015.gdb\LiMW_GIS 2015.gdb'
     m_path =  r'data\int\D_land_map\allocated_area_union_geom.gpkg'

@@ -158,8 +158,6 @@ def prep_init_guesses(model_name, sample, t):
         return (R0_guess, C_guess)
 
 
-
-
 def fit_prod_model(mine, prod_data, models, targets, lower_bounds, upper_bounds, min_sample_size):
     results = []
     data_records = []

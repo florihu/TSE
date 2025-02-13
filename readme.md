@@ -18,21 +18,17 @@ crease the accuracy of both models and enables environmental decision making at 
 and resolution.
 
 # Conventions
-level coding:
+## level coding:
 * D : data gathering
     * every data soure gets a subfolder
 * E : data exploration
 * M : modelling
 * R : result - Analysis
 
-variable nomenclature:
+## variable nomenclature:
 * No units
 * No empty spaces
 * first Letter large
 * example: Production_mass
+* Purpose, Parameter, Functions,  main functions structure
 
-Metadata
-
-* Var name 
-* Var unit
-* Assumption

@@ -67,26 +67,33 @@ def initiate_mc_per_mine(t_max, model, P1_value, P2_value, P3_value, P1_err, P2_
             for i in range(iterations):
                 f[i, :], F[i, :] = hubbert_deriv(t, p1[i], p2[i], p3[i]), hubbert_model(t, p1[i], p2[i], p3[i])
             
-            # return std for f and F
-            f_err = np.nanstd(f, axis=0)  # std ignoring NaNs
-            F_err = np.nanstd(F, axis=0)  # std ignoring NaNs
 
-            f_mean = np.nanmean(f, axis=0)  # mean ignoring NaNs
-            F_mean = np.nanmean(F, axis=0)  # mean ignoring NaNs
+            f_mean = np.zeros(t_max)
+            F_mean = np.zeros(t_max)
+            f_err = np.zeros(t_max)
+            F_err = np.zeros(t_max)
+            f_lower_ci = np.zeros(t_max)
+            f_upper_ci = np.zeros(t_max)
+            F_lower_ci = np.zeros(t_max)
+            F_upper_ci = np.zeros(t_max)
 
             f_p_star = hubbert_deriv(t, P1_value, P2_value, P3_value)
             F_p_star = hubbert_model(t, P1_value, P2_value, P3_value)
+
+            for i in range(t_max):
+                 f_boot = bootstrap(data=f[:, i].reshape(-1, 1).T, statistic=np.std, n_resamples=1000, method='bca')
+                 f_mean[i], f_err[i], f_lower_ci[i], f_upper_ci[i] =  (f_boot.confidence_interval.high + f_boot.confidence_interval.low) / 2, f_boot.standard_error, f_boot.confidence_interval.low, f_boot.confidence_interval.high
+                 F_boot = bootstrap(data=F[:, i].reshape(-1, 1).T, statistic=np.std, n_resamples=1000, method='bca')
+                 F_mean[i], F_err[i], F_lower_ci[i], F_upper_ci[i] =  (F_boot.confidence_interval.high + F_boot.confidence_interval.low) / 2, F_boot.standard_error, F_boot.confidence_interval.low, F_boot.confidence_interval.high
+
+
+            
 
              # assert that the means are not nan
             assert not np.isnan(f_mean).any(), 'f_mean contains NaNs'
             assert not np.isnan(F_mean).any(), 'F_mean contains NaNs'
 
-            # Compute the percentiles while ignoring NaNs
-            f_lower_ci = np.nanpercentile(f, lower_percentile, axis=0)  # Lower CI for f
-            f_upper_ci = np.nanpercentile(f, upper_percentile, axis=0)  # Upper CI for f
-
-            F_lower_ci = np.nanpercentile(F, lower_percentile, axis=0)  # Lower CI for F
-            F_upper_ci = np.nanpercentile(F, upper_percentile, axis=0)  # Upper CI for F
+           
 
             f_lower_ci_norm = (f_lower_ci / f_mean) 
             f_upper_ci_norm = (f_upper_ci / f_mean) 
@@ -112,25 +119,24 @@ def initiate_mc_per_mine(t_max, model, P1_value, P2_value, P3_value, P1_err, P2_
             for i in range(iterations):
                 f[i, :], F[i, :] = femp_deriv(t, p1[i], p2[i]), femp(t, p1[i], p2[i])
             
-            # return std for f and F
-            f_err = f.std(axis=0)
-            F_err = F.std(axis=0)
-
-            f_mean = f.mean(axis=0)
-            F_mean = F.mean(axis=0)
+            f_mean = np.zeros(t_max)
+            F_mean = np.zeros(t_max)
+            f_err = np.zeros(t_max)
+            F_err = np.zeros(t_max)
+            f_lower_ci = np.zeros(t_max)
+            f_upper_ci = np.zeros(t_max)
+            F_lower_ci = np.zeros(t_max)
+            F_upper_ci = np.zeros(t_max)
 
             f_p_star = femp_deriv(t, P1_value, P2_value)
-            F_p_star = femp(t, P1_value, P2_value )
-            
-            # assert that the means are not nan
-            assert not np.isnan(f_mean).any(), 'f_mean contains NaNs'
-            assert not np.isnan(F_mean).any(), 'F_mean contains NaNs'
+            F_p_star = femp(t, P1_value, P2_value)
 
-            f_lower_ci = np.percentile(f, lower_percentile, axis=0)
-            f_upper_ci = np.percentile(f, upper_percentile, axis=0)
+            for i in range(t_max):
+                 f_boot = bootstrap(data=f[:, i].reshape(-1, 1).T, statistic=np.std, n_resamples=1000, method='bca')
+                 f_mean[i], f_err[i], f_lower_ci[i], f_upper_ci[i] =  (f_boot.confidence_interval.high + f_boot.confidence_interval.low) / 2, f_boot.standard_error, f_boot.confidence_interval.low, f_boot.confidence_interval.high
+                 F_boot = bootstrap(data=F[:, i].reshape(-1, 1).T, statistic=np.std, n_resamples=1000, method='bca')
+                 F_mean[i], F_err[i], F_lower_ci[i], F_upper_ci[i] =  (F_boot.confidence_interval.high + F_boot.confidence_interval.low) / 2, F_boot.standard_error, F_boot.confidence_interval.low, F_boot.confidence_interval.high
 
-            F_lower_ci = np.percentile(F, lower_percentile, axis=0)
-            F_upper_ci = np.percentile(F, upper_percentile, axis=0)
 
             f_lower_ci_norm = f_lower_ci / f_mean
             f_upper_ci_norm = f_upper_ci / f_mean

@@ -32,50 +32,54 @@ sig = 0.05
 ############################################ Functions ############################################
 
 
-def model_analytics_hist(data, v):
+def model_analytics_hist(data):
     '''
     Function to create a facet grid of histograms for each target variable and model
     for a given variable of interest using plotnine, with optional log scale and automatic y-axis scaling.
     '''
 
-    if v == 'RMSE':
-        data[v] = data[v] / 10**6 # convert to Mt
+    data_n = data.copy()
+   
+    for v in ['RMSE', 'R2', 'NRMSE']:
+        data = data_n.copy()
+        if v == 'RMSE':
+            data[v] = data[v] / 10**6 # convert to Mt
 
-    color_dict = {'femp': '#e08214', 'hubbert': '#542788'}
+        color_dict = {'femp': '#e08214', 'hubbert': '#542788'}
 
 
-    # Get sample size per target var
-    sample_size = data.groupby(['Target_var', 'Model']).size().reset_index(name='Sample_size')
-    sample_size['Target_var'] = sample_size['Target_var'].replace(rename_dict)
+        # Get sample size per target var
+        sample_size = data.groupby(['Target_var', 'Model']).size().reset_index(name='Sample_size')
+        sample_size['Target_var'] = sample_size['Target_var'].replace(rename_dict)
 
 
-    data['Target_var'] = data['Target_var'].replace(rename_dict)
+        data['Target_var'] = data['Target_var'].replace(rename_dict)
 
-    # add sample size to the Target var string
-    data = pd.merge(data, sample_size, on=['Target_var', 'Model'])
+        # add sample size to the Target var string
+        data = pd.merge(data, sample_size, on=['Target_var', 'Model'])
 
-    data['Target_var'] = data['Target_var'] + ' (n=' + data['Sample_size'].astype(str) + ')'
+        data['Target_var'] = data['Target_var'] + ' (n=' + data['Sample_size'].astype(str) + ')'
 
-    
+        
 
-    # Base plot setup
-    plot = (
-        ggplot(data, aes(x=v, fill='Model'))
-        + geom_histogram(bins=20, alpha=0.7, position="identity")
-        + facet_wrap('~Target_var', nrow=2, scales='free')
-        + labs(x=v, y='Frequency')
-        + theme_minimal()
-        + theme(subplots_adjust={'wspace': 0.3, 'hspace': 0.3}, text=element_text(size=14), legend_position='bottom')
-        + scale_fill_manual(values=color_dict)
-        )
+        # Base plot setup
+        plot = (
+            ggplot(data, aes(x=v, fill='Model'))
+            + geom_histogram(bins=20, alpha=0.7, position="identity")
+            + facet_wrap('~Target_var', nrow=2, scales='free')
+            + labs(x=v, y='Frequency')
+            + theme_minimal()
+            + theme(subplots_adjust={'wspace': 0.3, 'hspace': 0.3}, text=element_text(size=14), legend_position='bottom')
+            + scale_fill_manual(values=color_dict)
+            )
 
-    if v == 'RMSE':
-        plot += labs(x=v + ' (Mt)')
+        if v == 'RMSE':
+            plot += labs(x=v + ' (Mt)')
         
     
 
-    # Save and draw the plot
-    save_fig_plotnine(plot, f'{v}_prodmod_facet_by_model_trans.png', w= 14, h=10)
+        # Save and draw the plot
+        save_fig_plotnine(plot, f'{v}_prodmod_facet_by_model_trans.png', w= 14, h=10)
     
     return None
 
@@ -106,6 +110,9 @@ def summarize_results(data):
     sample_sizes = data.groupby(['Target_var', 'Model']).size().reset_index(name='Sample_size')
     
     summary = pd.merge(summary, sample_sizes, on=['Target_var', 'Model']).set_index('Target_var')
+
+    # rename target var
+    summary.rename(index=rename_dict, inplace=True)
 
     # reset index, invert and make multi column target ar and model
     summary = summary.reset_index().set_index(['Target_var', 'Model']).T
@@ -414,22 +421,21 @@ def sample_size_box(modelres):
     return None
 
 
-#################################################### Main ########################################################
-
-def main_class_bar_chart(modelres):
+def init_class_bar_chart(modelres):
     classified = identify_cum_model(modelres)
     class_bar_chart(classified)
 
-def main_summarize_results(modelres):
-    summarize_results(modelres)
+#################################################### Main ########################################################
+
+
+
+
 
 if __name__ == '__main__':
-    sig = .05    
     modelres = pd.read_json(r'data\int\production_model_fits_trans.json')
     rec = pd.read_csv(r'data\int\data_records.csv')
     
-    for i in ['RMSE', 'R2', 'NRMSE']:
-        model_analytics_hist(modelres, i)
-
+    
+    init_class_bar_chart(modelres)
     
    

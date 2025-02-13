@@ -22,7 +22,18 @@ np.random.seed(42)
 
 # model color dict
 
-model_color = {'femp': '#542788', 'hubbert': '#e08214'}
+model_color = {'femp':'#e08214', 'hubbert': '#542788'}
+
+ids_manuscript = [28174, 33643,  26634]
+
+
+prod_rename_dict = {'Tailings_production': 'TP', 'Waste_rock_production': 'WRP', 'Ore_processed_mass': 'OP', 'Concentrate_production': 'CP'}
+
+cumprod_rename_dict = {'Tailings_production': 'CTP', 'Waste_rock_production': 'CWRP', 'Ore_processed_mass': 'COP', 'Concentrate_production': 'CCP'}
+
+rename_prop_name = {'Neves-Corvo, Copper, Portugal': 'Type 2: Neves-Corvo, Copper, Portugal',
+                    'Broken Hill, Zinc, Australia': 'Type 1: Broken Hill, Zinc, Australia',
+                    'Lanfranchi, Nickel, Australia': 'Type 3: Lanfranchi, Nickel, Australia'}
 
 #########################################Functions################################################
 
@@ -569,15 +580,28 @@ def get_random_ids(data, n):
     return np.random.choice(data['Prop_id'].unique(), size=n, replace=False )
 
 
-def explo_obs_vs_sim_error_prod(data):
-    data.rename(columns={'f_p_star': 'Simulated', 
-                         'f_upper_ci_norm': 'Conf_upper',
-                         'f_lower_ci_norm': 'Conf_lower'}, inplace=True)
+def explo_obs_vs_sim_error_prod(type = 'prod'):
+
+    data = prep_data()
+
+    if type == 'prod':
+        data.rename(columns={'f_p_star': 'Simulated', 
+                             'f_upper_ci': 'Conf_upper',
+                             'f_lower_ci': 'Conf_lower'}, inplace=True)
+        
+        rename_dict = prod_rename_dict
+        
+    elif type == 'cumprod':
+
+        data.rename(columns={f'F_p_star': 'Simulated', 
+                            f'F_upper_ci': 'Conf_upper',
+                            f'F_lower_ci': 'Conf_lower'}, inplace=True)
+        rename_dict = cumprod_rename_dict
+        
+    else:
+        raise ValueError('type must be either prod or cumprod')
 
     data['Start_up_year'] = data['Start_up_year'].astype(int)
-
-    data['Conf_lower'] = data['Conf_lower'] * data['Simulated']
-    data['Conf_upper'] = data['Conf_upper'] * data['Simulated']
 
     data['Year'] = data['Year'] + data['Start_up_year']
 
@@ -588,88 +612,56 @@ def explo_obs_vs_sim_error_prod(data):
     data['Conf_upper'] = data['Conf_upper'] / 10**6 # Convert to Mt
     data['Conf_lower'] = data['Conf_lower'] / 10**6 # Convert to Mt
 
+    # if conf upper is bigger then 3 times the simulated value, set it to 3 times the simulated value
+    data['Conf_upper'] = data.apply(lambda x: 8 * x['Simulated'] if x['Conf_upper'] > 8* x['Simulated'] else x['Conf_upper'], axis=1)
+    
+    
+    # Loop over each target variable to create faceted plots
+    for t in data['Target_var'].unique():
+        # Select a random sample of 40 unique Prop_id values
+        subset = data[data.Target_var == t]
+        ids = get_random_ids(subset, 36)
 
-    for t, m in product(data['Target_var'].unique(), data['Model'].unique()):
-
-        subset = data[(data['Target_var'] == t) & (data['Model'] == m)]
+        subset = subset[(subset['Prop_id'].isin(ids))].copy()
+        subset['Target_var'] = subset['Target_var'].replace(rename_dict)
         
-        if subset.empty:
-            continue  # Skip if no data for this combination
-
-        ids = get_random_ids(data, 40)
-
-        subset = subset[subset['Prop_id'].isin(ids)]
-
-
-        plot =  (ggplot(subset, aes(x='Year', y='Simulated', fill = 'Model'))
-                # Confidence interval as a shaded area
-                + geom_ribbon(aes(ymin='Conf_lower', ymax='Conf_upper', fill = 'Model'), alpha=0.3)
-                # Simulated values as lines
-                + geom_line(aes(y='Simulated'), size = 1)
-                # Observed values as points
-                + geom_point(aes(y='Observed'), color='black', size = 2)
-                # Facet by Prop_id
-                + facet_wrap('~Prop_name', scales='free', ncol=5)
-                + theme_minimal()
-                + labs(x='Year', y='Value (Mt)')
-                + theme(legend_position='none')
-                + scale_color_manual(values=[model_color[m]])
+        # Construct the plot
+        plot = (
+            ggplot(subset, aes(x='Year', y='Simulated', color='Model'))
+            # Confidence intervals as shaded ribbons
+            + geom_ribbon(aes(ymin='Conf_lower', ymax='Conf_upper', fill='Model'),
+                          alpha=0.3)
+            # Simulation lines for each model
+            + geom_line(size=1)
+                       
+            # Faceting by property name with free scales
+            + facet_wrap('~Prop_name', scales='free', ncol=6)
+            + theme_minimal()
+            + labs(x='Year', y=f'{rename_dict[t]} (Mt)')
+            + theme(
+                legend_position='bottom',
+                axis_text_x=element_text(size=8),  # Reduce x-axis tick text size
+                axis_text_y=element_text(size=8),  # Reduce y-axis tick text size
+                axis_title_x=element_text(size=8),  # Reduce x-axis label size
+                axis_title_y=element_text(size=8),  # Reduce y-axis label size
+                strip_text=element_text(size=8),  # Reduce facet title text size
+                legend_text=element_text(size=8),  # Reduce legend text size
+                legend_title=element_text(size=8), 
+                figure_size=(20, 20) # Reduce legend title size
                 )
+            
+            + scale_fill_manual(values=model_color)
+            + scale_color_manual(values=model_color)
+            )
+        if type == 'prod':
+            plot = plot + geom_point(
+            data=subset.drop_duplicates(subset=['Year', 'Prop_id']),
+            mapping=aes(x='Year', y='Observed'),
+            color='black', size=2)
+        # Save the plot to file
+        save_fig_plotnine(plot, f'{t}_{type}_obs_vs_sim_conf.png', w=24, h=24)
         
-        
-        save_fig_plotnine(plot, f'{t}_{m}_obs_vs_sim_error_prod.png', w=12, h=18 )
-        
 
-
-def explo_obs_vs_sim_error_cumprod(data):
-
-
-    data.rename(columns={'F_mean': 'Simulated', 
-                         'F_upper_ci': 'Conf_upper',
-                         'F_lower_ci': 'Conf_lower'}, inplace=True)
-
-    data['Start_up_year'] = data['Start_up_year'].astype(int)
-
-    data['Year'] = data['Year'] + data['Start_up_year']
-
-    data['Prop_id'] = data['Prop_id'].astype('category')
-
-    data['Simulated'] = data['Simulated'] / 10**6 # Convert to Mt
-    data['Conf_upper'] = data['Conf_upper'] / 10**6 # Convert to Mt
-    data['Conf_lower'] = data['Conf_lower'] / 10**6 # Convert to Mt
-
-    data['Conf_lower'] = data['Conf_lower'].apply(lambda x: 0 if x < 0 else x)
-
-
-    for t, m in product(data['Target_var'].unique(), data['Model'].unique()):
-
-        subset = data[(data['Target_var'] == t) & (data['Model'] == m)]
-
-        
-        if subset.empty:
-            continue  # Skip if no data for this combination
-
-        ids = get_random_ids(data, 40)
-
-        subset = subset[subset['Prop_id'].isin(ids)]
-
-
-        plot =  (ggplot(subset, aes(x='Year', y='Simulated', color = 'Model'))
-                # Confidence interval as a shaded area
-                + geom_ribbon(aes(ymin='Conf_lower', ymax='Conf_upper', fill = 'Model'), alpha=0.3)
-                # Simulated values as lines
-                + geom_line(aes(y='Simulated'))
-
-                + facet_wrap('~Prop_name', scales='free', ncol=5)
-                + theme_minimal()
-                + labs(x='Year', y='Value (Mt)')
-                + theme(legend_position='none')
-                + scale_color_manual(values=[model_color[m] for m in data['Model'].unique()])
-                )
-        
-        
-        save_fig_plotnine(plot, f'{t}_{m}_obs_vs_sim_error_cumprod.png', w=12, h=18 )
-        
 
 def hubbert_k_vs_L(modelres, targets):
 
@@ -698,6 +690,8 @@ def hubbert_k_vs_L(modelres, targets):
 
 def add_mine_context(data):
 
+    assert 'Prop_id' in data.columns, "Prop_id column missing in data"
+
     site = get_data('site')
     # construct a feature from prop name, primary commodity and Country
     site['Prop_name'] = site['Prop_name'].str.cat(site[['Primary_commodity', 'Country_name']], sep=', ')
@@ -707,6 +701,19 @@ def add_mine_context(data):
 
     return c_data
 
+def transform_to_r2_text(x):
+        # Extract R² values for both models
+        r2_femp = x[x['Model'] == 'femp']['R2'].values[0]
+        r2_hubbert = x[x['Model'] == 'hubbert']['R2'].values[0]
+
+        nrmse_femp = x[x['Model'] == 'femp']['NRMSE'].values[0]
+        nrmse_hubbert = x[x['Model'] == 'hubbert']['NRMSE'].values[0]
+
+        
+        # Format into a single string
+        data = f"R2: femp ({r2_femp:.2f}), hubbert ({r2_hubbert:.2f})\n NRMSE: femp ({nrmse_femp:.2f}), hubbert ({nrmse_hubbert:.2f})"
+    
+        return data
 
 def prep_data():
     """Prepares and merges data from multiple sources, adding mine context."""
@@ -727,11 +734,18 @@ def prep_data():
     # Ensure 'Year' is integer
     rec_sub['Year'] = rec_sub['Year'].astype(int)
 
+    # make a column per prop id with r2 of both models for each target var
+
+    fit_text = modelres.groupby(['Prop_id', 'Target_var']).apply(lambda x: transform_to_r2_text(x)).reset_index()
+    fit_text.rename(columns={0: 'R2_text'}, inplace=True)
+
     ua.rename(columns={'Time_period': 'Year'}, inplace=True)
     ua['Year'] = ua['Year'].astype(int)
 
     # Merge uncertainty analysis (ua) with observed data records
     merged_data = ua.merge(rec_sub, on=['Prop_id', 'Target_var', 'Model', 'Year'], how='left')
+
+    merged_data = merged_data.merge(fit_text, on=['Prop_id', 'Target_var'], how='left')
 
     # Add mine context
     merged_data = add_mine_context(merged_data)
@@ -739,15 +753,93 @@ def prep_data():
     return merged_data
 
 
+
+def manuscript_cumprod_plot():
+    data = prep_data()
+    melt = data.melt(
+        id_vars=['Prop_id', 'Year', 'Target_var', 'Model', 'Prop_name', 'R2_text', 'Start_up_year'],
+        value_vars=['Observed', 'f_p_star', 'f_upper_ci', 'f_lower_ci', 'F_p_star', 'F_lower_ci', 'F_upper_ci'],
+        var_name='Var_type',
+        value_name='Value'
+    )
+
+    # Strip 'f' and 'F' and create a separate column
+    melt['Type'] = melt['Var_type'].str[2:]
+    melt['Var_type'] = melt['Var_type'].str[0]
+
+    melt['Var_type'].replace({'O': 'f'}, inplace=True)
+    melt['Type'].replace({'p_star': 'Simulated', 'served': 'Observed'}, inplace=True)
+
+    melt['Value'] = melt['Value'] / 10**6  # Convert to Mt
+
+    
+
+    piv = melt.pivot_table(
+        index=['Prop_id', 'Year', 'Target_var', 'Model', 'Prop_name', 'Var_type', 'Start_up_year', 'R2_text'],
+        columns='Type',
+        values='Value',
+        aggfunc='first'
+    ).reset_index()
+
+    
+    piv['Year'] = piv['Year'] + piv['Start_up_year']
+
+    for t in ['Ore_processed_mass', 'Concentrate_production', 'Tailings_production']:	
+        # Select a random sample of 40 unique Prop_id values
+        subset = piv[piv.Target_var == t].copy()
+
+        subset = subset[(subset['Prop_name'].isin(rename_prop_name.keys()))].copy()
+        subset['Target_var'] = subset.apply(
+            lambda x: prod_rename_dict[x['Target_var']] if x['Var_type'] == 'f' else cumprod_rename_dict[x['Target_var']],
+            axis=1
+        )
+        type_dict = {'f': 'Production', 'F': 'Cumulative Production'}
+        subset['Var_type'] = subset['Var_type'].replace(type_dict)
+
+        subset['Var_type'] = subset['Var_type'].astype('category')
+        subset['Prop_name'] = subset['Prop_name'].astype('category')
+
+        subset['Prop_name'] = subset['Prop_name'].replace(rename_prop_name)
+
+        plot = (
+            ggplot(subset, aes(x='Year')) +  # Use `subset` to ensure required variables are included
+            # Simulated production and integration
+            geom_line(aes(y='Simulated', color='Model'), size =1.5) +
+            geom_ribbon(aes(ymin='lower_ci', ymax='upper_ci', fill='Model'), alpha=0.2) +
+            # Observed data for Production
+            geom_point(aes(y='Observed'), color='black', size=1.5, na_rm=True) +
+            # Facet by `Prop_name` and `Var_type`
+            facet_grid(cols ='Prop_name', rows = 'Var_type', space={"x": [2,1,1], "y": [1, 2]}, scales='free') +
+            labs(
+                x="Year",
+                y="Log Value (Mt)",
+            ) +
+            theme_minimal() +
+            theme(
+                figure_size=(20, 10),
+                legend_position='bottom',
+                axis_text_x=element_text(rotation=45, hjust=1, size=12),
+                axis_text_y=element_text(size=12),
+                axis_title_x=element_text(size=12),
+                axis_title_y=element_text(size=12),
+                strip_text=element_text(size=12),
+                legend_text=element_text(size=12),
+            ) 
+            + scale_color_manual(values=model_color)
+            + scale_fill_manual(values=model_color)
+            # log scale y axis
+            + scale_y_log10()
+            +  geom_text(aes(x=2005, y=.005, label='R2_text'),
+                size=10, color='black',
+                data = subset[subset['Var_type'] == 'Production'])
+
+        )
+        save_fig_plotnine(plot, f'{t}_manuscript_compod_plot.png', w=20, h=10)
+
 #########################################Main Functions ##############################################
 
 
 
-
-
-
-
-
 if __name__ == '__main__':
-    df = prep_data()
-    explo_obs_vs_sim_error_prod(df)
+    
+    manuscript_cumprod_plot()

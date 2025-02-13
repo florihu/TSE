@@ -6,6 +6,14 @@ from D_sp_data_clean import dtype_conversion, var_exp_path
 from tqdm import tqdm
 from fuzzywuzzy import process
 
+##############################################Purpose#######################################################
+# This script aims to load and clean the Werner data for further processing.
+
+
+###################################################Parameters###################################################
+
+
+##############################################Functions#####################################################
 def load_prod(path):
     '''
     Load production data from an Excel file with unknown sheet names.
@@ -160,6 +168,8 @@ def fuzzy_mapping(area_keys, prod_keys):
 
     return df
 
+
+##############################################Main########################################################
 def werner_to_werner_merge(c_prod, c_area):
 
     match_wtow = pd.read_excel(var_exp_path, sheet_name='fuzzy_werner_a_prod')

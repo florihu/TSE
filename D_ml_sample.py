@@ -13,130 +13,162 @@ and split into a dataset for prediction of waste rock and a dataset for predicti
 
 '''
 
+
 import pandas as pd
 from scipy.stats import norm, lognorm, uniform
 import numpy as np
+import geopandas as gpd
+from tqdm import tqdm
+from plotnine import *
+
 
 
 from M_prod_model import hubbert_model, femp
-from R_prod_analysis import identify_cum_model
+from R_cumprod_per_mine_analysis import add_mine_context
 from D_land_map import alloc_poly_to_sp
-import geopandas as gpd
-from tqdm import tqdm
-from util import append_to_excel, data_to_csv_int, df_to_gpkg, save_fig_plotnine
-from plotnine import *
 
-def return_integrated_values(row, df_res, ua = False, **kwargs):
-    '''
-    This function is used to return the integrated values for the production model.
-    The function is used in the apply method of the dataframe.
-    '''
-    # specify the model type
+from util import append_to_excel, df_to_csv_int, df_to_gpkg, save_fig_plotnine
 
-    period = 2019 - df_res[df_res.Prop_id == row['Prop_id']]['Start_up_year'].values[0]
+
+############################################Purpose############################################
+
+
+
+###########################################Parameter############################################
+mod_res_p = r'data\int\production_model_fits_trans.json'
+unc_res_p = 'data\int\M_cumprod_mc_confidence\cumprod_mc_confidence.csv'
+
+li_path = r'data\int\D_lito_map\li_class_by_mine.csv'
+poly_path = r'data\dcrm_cluster_data\dcrm_cluster_data\mine_polygons.gpkg'
+area_path = r'data\int\D_land_map\allocated_area_union_geom.gpkg'
+cluster_path = r'data\dcrm_cluster_data\dcrm_cluster_data\cluster_points_concordance.csv'
+all_coms = False
+
+sig = .05
+
+###########################################Function############################################
+
+# def return_integrated_values(row, df_res, ua = False, **kwargs):
+#     '''
+#     This function is used to return the integrated values for the production model.
+#     The function is used in the apply method of the dataframe.
+#     '''
+#     # specify the model type
+
+#     period = 2019 - df_res[df_res.Prop_id == row['Prop_id']]['Start_up_year'].values[0]
     
 
-    if ua == False: 
-        if row['Class'] == 'H':
-            p1, p2, p3 = df_res[(df_res.Prop_id == row['Prop_id']) & 
-                                (df_res.Target_var == row['Target_var']) &
-                                (df_res.Model == 'hubbert')][['P1_value', 'P2_value', 'P3_value']].values.flatten()
-            return period, hubbert_model(period, p1, p2, p3)
+#     if ua == False: 
+#         if row['Class'] == 'H':
+#             p1, p2, p3 = df_res[(df_res.Prop_id == row['Prop_id']) & 
+#                                 (df_res.Target_var == row['Target_var']) &
+#                                 (df_res.Model == 'hubbert')][['P1_value', 'P2_value', 'P3_value']].values.flatten()
+#             return period, hubbert_model(period, p1, p2, p3)
             
-        elif row['Class'] == 'F':
-            # unpack the values
-            p1, p2 = df_res[(df_res.Prop_id == row['Prop_id']) & 
-                                (df_res.Target_var == row['Target_var']) &
-                                (df_res.Model == 'femp')][['P1_value', 'P2_value']].values.flatten()
-            return period, femp(period, p1, p2)
+#         elif row['Class'] == 'F':
+#             # unpack the values
+#             p1, p2 = df_res[(df_res.Prop_id == row['Prop_id']) & 
+#                                 (df_res.Target_var == row['Target_var']) &
+#                                 (df_res.Model == 'femp')][['P1_value', 'P2_value']].values.flatten()
+#             return period, femp(period, p1, p2)
 
-        else:
-            return period, None   
+#         else:
+#             return period, None   
         
-    else:
-        sample_size = kwargs['sample_size']
+#     else:
+#         sample_size = kwargs['sample_size']
         
-        period = np.repeat(period, sample_size)
+#         period = np.repeat(period, sample_size)
 
-        if row['Class'] == 'H':
-            # Extract parameter values
-            p1, p2, p3 = df_res[(df_res.Prop_id == row['Prop_id']) & 
-                                (df_res.Target_var == row['Target_var']) &
-                                (df_res.Model == 'hubbert')][['P1_value', 'P2_value', 'P3_value']].values.flatten()
+#         if row['Class'] == 'H':
+#             # Extract parameter values
+#             p1, p2, p3 = df_res[(df_res.Prop_id == row['Prop_id']) & 
+#                                 (df_res.Target_var == row['Target_var']) &
+#                                 (df_res.Model == 'hubbert')][['P1_value', 'P2_value', 'P3_value']].values.flatten()
 
-            p1_err, p2_err, p3_err = df_res[(df_res.Prop_id == row['Prop_id']) & 
-                                            (df_res.Target_var == row['Target_var']) &
-                                            (df_res.Model == 'hubbert')][['P1_err', 'P2_err', 'P3_err']].values.flatten()
+#             p1_err, p2_err, p3_err = df_res[(df_res.Prop_id == row['Prop_id']) & 
+#                                             (df_res.Target_var == row['Target_var']) &
+#                                             (df_res.Model == 'hubbert')][['P1_err', 'P2_err', 'P3_err']].values.flatten()
 
-            # Log-normal distribution requires the log-transformed parameters for initialization
-            p1_mean_log = np.log(p1)
-            p1_std_log = p1_err / p1  # Approximation assuming small relative error
+#             # Log-normal distribution requires the log-transformed parameters for initialization
+#             p1_mean_log = np.log(p1)
+#             p1_std_log = p1_err / p1  # Approximation assuming small relative error
 
-            p3_mean_log = np.log(p3)
-            p3_std_log = p3_err / p3  # Approximation assuming small relativimpor
+#             p3_mean_log = np.log(p3)
+#             p3_std_log = p3_err / p3  # Approximation assuming small relativimpor
 
-            # Initialize distributions
-            p1_distrib = lognorm(s=p1_std_log, scale=np.exp(p1_mean_log))
-            p2_distrib = norm(loc=p2, scale=p2_err)  # Normal distribution
-            p3_distrib = lognorm(s=p3_std_log, scale=np.exp(p3_mean_log))
+#             # Initialize distributions
+#             p1_distrib = lognorm(s=p1_std_log, scale=np.exp(p1_mean_log))
+#             p2_distrib = norm(loc=p2, scale=p2_err)  # Normal distribution
+#             p3_distrib = lognorm(s=p3_std_log, scale=np.exp(p3_mean_log))
 
-            # Draw 1 sample from each distribution
-            p1_sample = p1_distrib.rvs(sample_size)[0]
-            p2_sample = p2_distrib.rvs(sample_size)[0]
-            p3_sample = p3_distrib.rvs(sample_size)[0]
+#             # Draw 1 sample from each distribution
+#             p1_sample = p1_distrib.rvs(sample_size)[0]
+#             p2_sample = p2_distrib.rvs(sample_size)[0]
+#             p3_sample = p3_distrib.rvs(sample_size)[0]
 
-            # Return the result of the Hubbert model
-            return period[0], hubbert_model(period, p1_sample, p2_sample, p3_sample)
+#             # Return the result of the Hubbert model
+#             return period[0], hubbert_model(period, p1_sample, p2_sample, p3_sample)
             
 
-        elif row['Class'] == 'F':
-            # unpack the values
-            p1, p2 = df_res[(df_res.Prop_id == row['Prop_id']) & 
-                                (df_res.Target_var == row['Target_var']) &
-                                (df_res.Model == 'femp')][['P1_value', 'P2_value']].values.flatten()
+#         elif row['Class'] == 'F':
+#             # unpack the values
+#             p1, p2 = df_res[(df_res.Prop_id == row['Prop_id']) & 
+#                                 (df_res.Target_var == row['Target_var']) &
+#                                 (df_res.Model == 'femp')][['P1_value', 'P2_value']].values.flatten()
             
-            p1_err, p2_err = df_res[(df_res.Prop_id == row['Prop_id']) & 
-                                (df_res.Target_var == row['Target_var']) &
-                                (df_res.Model == 'femp')][['P1_err', 'P2_err']].values.flatten()
+#             p1_err, p2_err = df_res[(df_res.Prop_id == row['Prop_id']) & 
+#                                 (df_res.Target_var == row['Target_var']) &
+#                                 (df_res.Model == 'femp')][['P1_err', 'P2_err']].values.flatten()
             
-            # p1-R0, p2- C
+#             # p1-R0, p2- C
 
-            p1_mean_log = np.log(p1)
-            p1_std_log = p1_err / p1
+#             p1_mean_log = np.log(p1)
+#             p1_std_log = p1_err / p1
             
 
-            p1_distrib = lognorm(s = p1_mean_log scale = p1_std_log)
-            p2_distrib = norm(loc = p2, scale = p2_err)
+#             p1_distrib = lognorm(s = p1_mean_log scale = p1_std_log)
+#             p2_distrib = norm(loc = p2, scale = p2_err)
 
             
-            # draw 1 sample from the distribution - does the inverse already of the lonorm
-            p1_sample = p1_distrib.rvs(sample_size)[0]
-            p2_sample = p2_distrib.rvs(sample_size)[0]
+#             # draw 1 sample from the distribution - does the inverse already of the lonorm
+#             p1_sample = p1_distrib.rvs(sample_size)[0]
+#             p2_sample = p2_distrib.rvs(sample_size)[0]
             
-            return period, femp(period, p1_sample, p2_sample)
+#             return period, femp(period, p1_sample, p2_sample)
         
         
-        else:    
-            return period, None
+#         else:    
+#             return period, None
 
 
 
-def get_cumsum(df):
+def get_cumsum():
     # Identify cumulative model data
-    cum_ident = identify_cum_model(df)
+    modelres = pd.read_json(mod_res_p)
+    ua = pd.read_csv(unc_res_p)
 
-    # Apply the integration function and create new columns
-    cum_ident[['Active_years', 'Cumsum_2019']] = cum_ident.apply(
-        lambda row: return_integrated_values(row, df), axis=1, result_type="expand"
-    )
+    ua['Year'] = ua['Time_period'] + ua['Start_up_year']
+    
+    # filter year 2019
+    ua = ua[ua['Year'] == 2019]
 
-    # Pivot table to restructure the data
-    cum_pivot = cum_ident.pivot_table(
-        index=['Prop_id', 'Active_years'], columns='Target_var', values='Cumsum_2019'
-    ).reset_index()
+    # merge with the model results
+    df_res = ua.merge(modelres, on=['Prop_id', 'Target_var', 'Model'], how='left')
 
-    # Return the final pivot table
-    return cum_pivot
+    # filter hubbert and p1_pval, p2_pval, p3_pval are significant
+    df_res = df_res[(df_res['Model'] == 'hubbert') & df_res[['P1_pval', 'P2_pval', 'P3_pval']].apply(lambda x: x < sig).all(axis=1)]
+
+    column_select = ['Prop_id', 'Target_var', 'F_p_star', 'F_lower_ci', 'F_upper_ci', 'R2', 'NRMSE', 'Start_up_year_x']
+
+    df_res = df_res[column_select]
+
+    #rename
+    df_res.rename(columns={'Start_up_year_x': 'Start_up_year', 'F_p_star': 'Cum_prod', 'F_upper_ci': 'Cum_prod_upper', 'F_lower_ci': 'Cum_prod_lower'}, inplace=True)
+
+    df_cont = add_mine_context(df_res)
+
+    return df_cont
 
 def com_col_trans(df, threshold=0, do_all_coms = False,  com_path = r'data\variable_description.xlsx'):
 
@@ -220,14 +252,14 @@ def divide_ws_tail(df, crs = 'EPSG:6933'):
 
     return None
 
-def get_coms_to_area(poly_df_p, cluster_df_p,  area_df_p):
+def get_coms_to_area():
     '''
     This function is used to merge the commodities to the area data.
     One duplicate is dropped in the process, 
     '''
-    cluster_df = pd.read_csv(cluster_df_p)
-    poly_df = gpd.read_file(poly_df_p)
-    area_df = gpd.read_file(area_df_p)
+    cluster_df = pd.read_csv(cluster_path)
+    poly_df = gpd.read_file(poly_path)
+    area_df = gpd.read_file(area_path)
 
     poly_to_cluster = poly_df.merge(cluster_df, on='id_cluster', how='left')
     subset = poly_to_cluster[['id_data_source', 'primary_materials_list', 'materials_list']].drop_duplicates()
@@ -239,6 +271,10 @@ def get_coms_to_area(poly_df_p, cluster_df_p,  area_df_p):
 
     # merge with the area df
     area_com = area_df.merge(subset, on='id_data_source', how='left')
+
+    area_com['Coalloc_mines_count'] = 1 / area_com['Weight']
+
+    area_com.rename(columns={'Area_mine': 'Unary_area', 'Area_mine_weighted': 'Unary_area_weighted'}, inplace=True)
     
     #assert that every id is unique
     assert area_com['id_data_source'].nunique() == area_com.shape[0], 'The id_data_source is not unique'
@@ -260,7 +296,6 @@ def eps_explo_plot(eps):
 
     save_fig_plotnine(plot, 'eps_explo.png')
     print(plot)
-
 
 def get_eps_per_mine():
     
@@ -315,19 +350,12 @@ def get_eps_per_mine():
     assert m['id_data_source'].nunique() == m.shape[0], 'The id_data_source is not unique'
     return m
 
-
+#################################################Main############################################
 def main():
-     # load the modelres
-    mod_res_p = r'data\int\production_model_fits.json'
-    targets_fit_p = r'data\int\D_target_prio_prep\target_vars_prio_source.csv'
-    li_path = r'data\int\D_lito_map\li_class_by_mine.csv'
-    poly_path = r'data\dcrm_cluster_data\dcrm_cluster_data\mine_polygons.gpkg'
-    area_path = r'data\int\D_land_map\allocated_area_union_geom.gpkg'
-    cluster_path = r'data\dcrm_cluster_data\dcrm_cluster_data\cluster_points_concordance.csv'
-    
-    all_coms = True
-    area_com = get_coms_to_area(poly_path, cluster_path, area_path)
 
+    #cumsum = get_cumsum()
+   
+    area_com = get_coms_to_area()
 
     li = pd.read_csv(li_path)
 
@@ -339,34 +367,7 @@ def main():
 
     merge_eps = merge_li.merge(eps, on='id_data_source', how='left')
 
-    if all_coms:
-        df_to_gpkg(merge_eps, 'features_all_mines_all_coms', crs = 'EPSG:6933')
-        
-    mod_res = pd.read_json(mod_res_p)
 
-
-
-
-
-    targets_fit = pd.read_csv(targets_fit_p)
-
-    merged = pd.merge(mod_res, targets_fit[['Prop_id', 'Start_up_year']].drop_duplicates(), on=['Prop_id'], how='left')
-    
-    # harmonize id type 
-
-    cum = get_cumsum(merged)
-    cum['Prop_id'] = cum['Prop_id'].astype(str)
-    merge_li['id_data_source'] = merge_li['id_data_source'].astype(str)
-
-    merge_cum = cum.merge(merge_li, left_on='Prop_id', right_on='id_data_source', how='left')
-
-    
-
-    merge_epi = merge_cum.merge(eps, on='id_data_source', how='left')
-    
-    divide_ws_tail(merge_epi)
-
-    return None
 
 
 if __name__ == '__main__':

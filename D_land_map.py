@@ -6,7 +6,7 @@ from scipy.spatial import ConvexHull
 
 from plotnine import *
 import numpy as np
-from util import save_fig_plotnine, data_to_csv_int, df_to_gpkg, save_fig
+from util import save_fig_plotnine, df_to_csv_int, df_to_gpkg, save_fig
 from tqdm import tqdm
 import warnings
 from multiprocessing import Pool
@@ -15,9 +15,16 @@ import logging
 import matplotlib.pyplot as plt
 from rtree import index
 
+###################################################Purpose#######################################################
 
+# This script aims to allocate the polygons to the mines based on the spatial characteristics of the polygons.
 
+###################################################Parameters###################################################
 log = logging.getLogger(__name__)
+
+####################################################Functions#####################################################
+
+
 
 def calc_spat_par(group, df):
         un = group.union_all()
@@ -37,8 +44,7 @@ def calc_spat_par(group, df):
         assert len(unique_mines) > 0, 'There are no unique ids in the group'
         # weight Assumption: the unary union union of the polygons is equally distributed among the unique mines
         # Overlaps are therefore equally not distributed among the mines
-
-
+    
         w = 1 / len(unique_mines)
         
         # number of unique mines per unary union
@@ -56,7 +62,7 @@ def calc_spat_par(group, df):
 
         geom = un.centroid
 
-        col = pd.Series({'Polygon_count': len(group), 'Weight':w , 'Area_mine': area, 'Area_mine_weighted': w_area, 'Convex_hull_area': conv_area,'Convex_hull_area_weighted': conv_area_w, 'Convex_hull_perimeter': conv_per,'Convex_hull_perimeter_weighted': conv_per_w ,'Compactness': comp, 'Compactness_weighted': comp_w, 'geometry': geom})
+        col = pd.Series({'Polygon_count': len(group), 'Weight':w , 'Unary_area': area, 'Unary_area_weighted': w_area, 'Convex_hull_area': conv_area,'Convex_hull_area_weighted': conv_area_w, 'Convex_hull_perimeter': conv_per,'Convex_hull_perimeter_weighted': conv_per_w ,'Compactness': comp, 'Compactness_weighted': comp_w, 'geometry': geom})
         
         return col
 

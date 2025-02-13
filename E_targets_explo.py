@@ -22,6 +22,9 @@ from R_cumprod_per_mine_analysis import add_mine_context
 ############################################ Params ############################################
 
 rename_dict = {'Tailings_production': 'TP', 'Waste_rock_production': 'WRP', 'Ore_processed_mass': 'OP', 'Concentrate_production': 'CP'}
+targets = ['Tailings_production', 'Waste_rock_production', 'Ore_processed_mass', 'Concentrate_production']
+
+windows_to_eval = [10, 12]
 
 randome_state = 42
 
@@ -66,13 +69,16 @@ def missing_values_per_mine(df, targets):
     # Calculate the proportion of non-missing values for each `Prop_id`
     group_counts = df.groupby('Prop_id')[targets].count()
     group_missing = df.groupby('Prop_id')[targets].apply(lambda x: x.isna().sum())
+
     prop = group_counts.div(group_counts + group_missing)
     
     # Generate summary statistics
     summary = prop.describe().round(2)
-    
+
+    # rename
+    summary = summary.rename(columns = rename_dict)
     # Save the summary to LaTeX
-    #df_to_latex(summary, 'missing_values_per_mine')
+    df_to_latex(summary, 'missing_values_per_mine')
     
     return prop
 
@@ -277,6 +283,8 @@ def samples_per_target_variable(df, targets):
 
     res = pd.concat(res, axis=1)
 
+    res = res.astype(float).round(2)
+
     # Save results to LaTeX
     df_to_latex(res, 'samples_per_target_variable')
 
@@ -349,7 +357,7 @@ def plot_time_series_target_outliers(df, targets, threshold=2):
         # Sample random 40 mines
         df_t = df_t[df_t['Prop_id'].isin(df_t['Prop_id'].sample(40, random_state=randome_state))]
     
-        for w in [7, 10, 12]: 
+        for w in windows_to_eval: 
             df_roll = rolling_mean_outlier_loop(df_t, t, targets, window_size=w, threshold=threshold)
 
             df_cont = add_mine_context(df_roll)
@@ -420,10 +428,9 @@ def main():
     path = r'data\int\D_target_prio_prep\target_vars_prio_source_trans.csv'
 
     prod = pd.read_csv(path)
-    targets = ['Tailings_production', 'Waste_rock_production', 'Ore_processed_mass', 'Concentrate_production']
     
-    outlier_detection_and_ouput(prod, targets)
-    
+    plot_time_series_target_outliers(prod, targets, threshold=2)
+
     
     return None
 

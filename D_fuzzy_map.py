@@ -11,6 +11,16 @@ import geopandas as gpd
 
 from util import save_fig_plotnine
 
+
+###################################################Purpose#######################################################
+
+# This script aims to perform a fuzzy matching between the Werner and SP data based on the mine names.
+
+###################################################Parameters####################################################
+
+
+####################################################Functions#####################################################
+
 def append_to_excel(filename, df, sheet_name):
     with pd.ExcelWriter(filename, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
         # Save the new sheet while keeping the existing ones
@@ -99,6 +109,8 @@ def d_calc(row, sp, werner):
 
         return point_werner.distance(point_sp)
 
+
+####################################################Main#########################################################
 def main_add_prop_id():
     '''
     Add the Prop_id to the fuzzy mapping DataFrame.

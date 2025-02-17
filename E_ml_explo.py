@@ -21,7 +21,6 @@ import seaborn as sns
 from scipy import stats
 import seaborn as sns
 from statsmodels.stats.outliers_influence import variance_inflation_factor
-from util import save_fig_plotnine, df_to_csv_int, df_to_gpkg, save_fig, get_path, df_to_latex, append_to_excel
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.decomposition import PCA
@@ -32,9 +31,10 @@ from sklearn.ensemble import GradientBoostingRegressor
 #linear regriession
 from sklearn.linear_model import LinearRegression, ElasticNet
 from sklearn.svm import SVR
-
 import networkx as nx
 
+
+from util import save_fig_plotnine, df_to_csv_int, df_to_gpkg, save_fig, get_path, df_to_latex, append_to_excel
 ##########################################################Purpose##########################################################################
 
 
@@ -59,6 +59,11 @@ vars = ['Prop_id', 'Target_var', 'Cum_prod', 'Cum_prod_lower', 'Cum_prod_upper',
        'Primary_Vanadium', 'Byprod_Vanadium', 'Primary_Zinc', 'Byprod_Zinc',
        'ev', 'mt', 'nd', 'pa', 'pb', 'pi', 'py', 'sc', 'sm', 'ss', 'su', 'va',
        'vb', 'vi', 'wb',  'Latitude', 'Longitude']
+
+log_vars = ['Cum_prod',
+    'Unary_area', 'Unary_area_weighted', 'Convex_hull_area',
+    'Convex_hull_area_weighted', 'Convex_hull_perimeter',
+    'Convex_hull_perimeter_weighted']
     
 
 num_vars = ['Cum_prod',
@@ -67,6 +72,8 @@ num_vars = ['Cum_prod',
     'Convex_hull_area_weighted', 'Convex_hull_perimeter',
     'Convex_hull_perimeter_weighted', 'Compactness', 'Compactness_weighted',
     'Coalloc_mines_count', 'EPS_mean', 'EPS_slope', 'Latitude', 'Longitude']
+
+
 
 id = ['Prop_id', 'Target_var', 'Prop_name']
 
@@ -94,44 +101,51 @@ cum_target_var_rename = {'Concentrate_production':'CCP',
 
 ##################################################################Functions################################################################
 
-def multi_cor(cor, name, sig_level=0.05):    
-   
+def corr_heat_plot(p = r'data\int\E_ml_explo\correlation_results.csv', sig_level=0.05, high = '#b35806', low = '#542788'):    
+    
+    cor = pd.read_csv(p)
+
+    # filter out nan values
+    cor = cor[~cor.isnull().any(axis=1)]
+
     # pivot vars 
     cor['Significant'] = cor['P-Value'] < sig_level
 
     
     # Add and asterix label to the correlation if it is significant
     cor['Label'] = cor.apply(lambda x: f"{x['Correlation']:.2f}" +'*' if x['Significant'] else f"{x['Correlation']:.2f}", axis=1)
-    
-
-    if name == 'tailings':
-        high, low = '#8e0152', '#276419'
-    elif name == 'waste_rock':
-        high, low = '#67001f', '#053061'
 
 
-    # Create the heatmap
-    plot = (
-        ggplot(cor, aes(x='Variable 1', y='Variable 2', fill='Correlation'))
-        + geom_tile(color="white", size=0.1)
-        + scale_fill_gradient2(low=low, mid="white", high=high, midpoint=0)
-        + theme_minimal()
-        + theme(
-            axis_text_x=element_text(angle=45, hjust=1),
-            axis_title=element_blank(),
-            panel_grid_major=element_blank(),
-            panel_grid_minor=element_blank(),
-            legend_position="right"
+    for name in ['Ore_processed_mass', 'Concentrate_production', 'Tailings_production']:
+
+        t = cor[cor.Target_var == name]
+
+        # Create the heatmap
+        plot = (
+            ggplot(t, aes(x='Variable 1', y='Variable 2', fill='Correlation'))
+            + geom_tile(color="white", size=0.2)
+            + scale_fill_gradient2(low=low, mid="white", high=high, midpoint=0)
+            + theme_minimal()
+            + theme(
+                axis_text_x=element_text(angle=45, hjust=1, size=7),
+                axis_text_y=element_text(size=7),
+                axis_title=element_blank(),
+                panel_grid_major=element_blank(),
+                panel_grid_minor=element_blank(),
+                legend_position="right"
+            )
+            + coord_fixed()
+            + geom_text(aes(label='Label'), size=6, color="black")
         )
-        + coord_fixed()
-        + geom_text(aes(label='Label'), size=5, color="black")
-    )
-        
-    # Save the plot
-    save_fig_plotnine(plot, f'{name}_correlation_matrix_heatmap.png', w=18, h=18)
-    return None
+            
+        # Save the plot
+        save_fig_plotnine(plot, f'{name}_correlation_matrix_heatmap.png', w=24, h=24)
 
-# def hist_per_variable(df, cat_vars, num_vars):
+
+
+    pass
+
+def hist_per_variable(df, cat_vars, num_vars):
     if vars is not None:
         df = df[vars]
 
@@ -185,28 +199,48 @@ def unit_rename(df, log_vars, num_vars, units):
     
     return df, num_vars
 
-def hist_per_var_type(df, name, cat_vars, num_vars, units):
+def hist_per_var_type():
 
-    df = immpute_vars(df, cat_vars, num_vars)
+    df = get_data()
+    # Create a DataFrame to store the results
 
-    log_vars = test_normality(df, name, num_vars)      
+    for name in ['Ore_processed_mass', 'Concentrate_production', 'Tailings_production']:
 
-    df.set_index('Prop_id', inplace=True)
+        t = df[df.Target_var == name]
 
-    df[log_vars] = df[log_vars].apply(np.log10)
+        t= clean_and_imput(t)
+
+        t.set_index('Prop_id', inplace=True)
     
-    df, num_vars = unit_rename(df, log_vars, num_vars, units)
-    
-    # Create histogram for nu   merical variables
-    if num_vars:
-        df_num = df[num_vars].reset_index().melt(id_vars='Prop_id', var_name='variable', value_name='value')
-        df_num['Prop_id'] = pd.Categorical(df_num['Prop_id'])
-        df_num['variable'] = pd.Categorical(df_num['variable'])
+        # Create histogram for numerical variables
+        df_num = t[num_vars].reset_index().melt(id_vars='Prop_id', var_name='Variable', value_name='Value')
+        
+        df_num['Variable'] = pd.Categorical(df_num['Variable'])
         
         plot_num = (
-            ggplot(df_num, aes(x='value', fill='variable'))
+            ggplot(df_num, aes(x='Value', fill='Variable'))
             + geom_histogram(bins=30, color='black', alpha=0.5)
-            + facet_wrap('~variable', scales='free')
+            + facet_wrap('~Variable', scales='free')
+            + theme_minimal()
+            + theme(
+                axis_text_x=element_text(angle=45, hjust=1),
+                axis_title=element_blank(),
+                panel_grid_major=element_blank(),
+                panel_grid_minor=element_blank(),
+                legend_position="none"
+            )
+        )
+
+        save_fig_plotnine(plot_num, f'{name}_histogram_numerical_variables.png', w=14, h=10)
+
+        df_log = df_num.copy()
+
+        df_log['Value'] = np.log10(df_log['Value'])
+
+        plot_log = (
+            ggplot(df_log, aes(x='Value', fill='Variable'))
+            + geom_histogram(bins=30, color='black', alpha=0.5)
+            + facet_wrap('~Variable', scales='free')
             + theme_minimal()
             + theme(
                 axis_text_x=element_text(angle=45, hjust=1),
@@ -218,29 +252,24 @@ def hist_per_var_type(df, name, cat_vars, num_vars, units):
         )
     
         # Save numerical variables histogram
-        save_fig_plotnine(plot_num, f'{name}_histogram_numerical_variables.png', w=14, h=10)
+        save_fig_plotnine(plot_log, f'{name}_histogram_numerical_variables_log.png', w=14, h=10)
     
-    # Create histogram for categorical variables
-    if cat_vars:
-        df_cat = df[cat_vars]
+    
 
-        #filter out vars wiht only 0
-        df_cat = df_cat.loc[:, (df_cat.sum(axis=0) != 0)]
-
-        df_cat = df_cat.reset_index().melt(id_vars='Prop_id', var_name='variable', value_name='value')
+        df_cat = t[cat_vars].reset_index().melt(id_vars='Prop_id', var_name='Variable', value_name='Value')
         df_cat['Prop_id'] = pd.Categorical(df_cat['Prop_id'])
-        df_cat['variable'] = pd.Categorical(df_cat['variable'])
-        df_cat['value'] = df_cat['value'].astype(int)
+        df_cat['Variable'] = pd.Categorical(df_cat['Variable'])
+        df_cat['Value'] = df_cat['Value'].astype(int)
         # Ensure the values are 0 or 1
-        assert df_cat['value'].isin([0, 1]).all(), "Categorical variables must have values 0 or 1."
+        assert df_cat['Value'].isin([0, 1]).all(), "Categorical variables must have values 0 or 1."
 
         # Cast the 'value' column to categorical
-        df_cat['value'] = pd.Categorical(df_cat['value'], categories=[0, 1])
+        df_cat['Value'] = pd.Categorical(df_cat['Value'], categories=[0, 1])
 
         plot_cat = (
-            ggplot(df_cat, aes(x='value', fill='variable'))
+            ggplot(df_cat, aes(x='Value', fill='Variable'))
             + geom_bar(position='dodge', color='black', alpha=0.7)
-            + facet_wrap('~variable', scales='free')
+            + facet_wrap('~Variable', scales='free')
             + theme_minimal()
             + theme(
                 axis_text_x=element_text(angle=45, hjust=1),
@@ -253,7 +282,7 @@ def hist_per_var_type(df, name, cat_vars, num_vars, units):
         # Save categorical variables histogram
         save_fig_plotnine(plot_cat, f'{name}_histogram_categorical_variables.png', w=14, h=10)
 
-    return None
+    pass
 
 def test_normality(alpha=0.05):
    
@@ -420,7 +449,6 @@ def clean_and_imput(df):
 
 
 def corr_calc():
-
     """
     Calculate correlations for:
     - numerical vs numerical
@@ -431,20 +459,22 @@ def corr_calc():
     # Transform numerical variables to log scale
     
     df = get_data()
+
+    df[log_vars] = df[log_vars].apply(np.log10)
     
     results = []
 
 
     for name in ['Ore_processed_mass', 'Concentrate_production', 'Tailings_production']:
-        df = df[df.Target_vars == name]
+        t = df[df.Target_var == name]
 
-        df = clean_and_imput(df)
+        t = clean_and_imput(t)
 
         # Numerical vs Numerical
         for var1 in num_vars:
             for var2 in num_vars:
                 if var1 != var2:
-                    corr, p_val = stats.pearsonr(df[var1], df[var2])
+                    corr, p_val = stats.pearsonr(t[var1], t[var2])
                     results.append({
                         'Target_var': name,
                         'Variable 1': var1,
@@ -460,7 +490,7 @@ def corr_calc():
         for var1 in cat_vars:
             for var2 in num_vars:
                 if var1 != var2:
-                    corr, p_val = stats.pointbiserialr(df[var1].astype(int), df[var2])
+                    corr, p_val = stats.pointbiserialr(t[var1].astype(int), t[var2])
                     results.append({
                         'Target_var': name,
                         'Variable 1': var1,
@@ -487,7 +517,7 @@ def corr_calc():
         for var1 in cat_vars:
             for var2 in cat_vars:
                 if var1 != var2 and df[var1].nunique() == 2 and df[var2].nunique() == 2:
-                    contingency = pd.crosstab(df[var1].astype(int), df[var2].astype(int))
+                    contingency = pd.crosstab(t[var1].astype(int), t[var2].astype(int))
                     chi2, p_val, _, _ = stats.chi2_contingency(contingency)
                     n = contingency.sum().sum()
                     phi = (chi2 / n) ** 0.5
@@ -505,13 +535,10 @@ def corr_calc():
     # Convert results to a DataFrame
     results_df = pd.DataFrame(results)
 
-    results_df['Target_var'].replace(cum_target_var_rename, inplace=True)
-
-    df_to_csv_int(results_df)
-    
+    df_to_csv_int(results_df, 'correlation_results')
 
     
-    return results_df
+    pass
 
 
 def vif(df, name, cat_vars, num_vars, target_vars, units):
@@ -547,15 +574,25 @@ def vif(df, name, cat_vars, num_vars, target_vars, units):
 
     return None
 
-def pairplot(df, name, log_vars, unit_conv):
-    df[log_vars] = df[log_vars].apply(np.log10)
-    df.rename(columns={col: f'{col} {unit_conv[col]}' for col in unit_conv}, inplace=True)
+def pairplot():
+    df = get_data()
 
-    # sns pairplot
-    f, ax = plt.subplots(figsize=(20, 20))
-    sns.pairplot(df)
-    save_fig(f'{name}_pairplot.png')
-    return None
+    comb_vars = num_vars + cat_vars
+
+    for name in ['Ore_processed_mass', 'Concentrate_production', 'Tailings_production']:
+
+        t = df[df.Target_var == name]
+
+        t= clean_and_imput(t)
+
+        f, ax = plt.subplots(figsize=(24, 24))
+
+        sns.pairplot(t[comb_vars])
+
+        save_fig(f'pairplot_{name}.png')
+
+        plt.show()
+
 
 def pca(df, name, log_vars, num_vars, target_vars):
     '''
@@ -756,4 +793,4 @@ def get_data():
 
 
 if __name__ == '__main__':
-    test_normality()
+    corr_heat_plot()

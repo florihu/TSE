@@ -111,7 +111,8 @@ def com_col_trans(df, threshold=0, do_all_coms = False,  com_path = r'data\varia
     for material in tqdm(rel_com):
         result[f'Primary_{material}'] = ((material_dummies[material] == 1) & primary_commodities.apply(lambda x: material in x)).astype(int)
         result[f'Byprod_{material}'] = ((material_dummies[material] == 1) & ~primary_commodities.apply(lambda x: material in x)).astype(int)
-    
+
+
 
     # merge with the original data
     result = df.merge(result, on='id_data_source', how='left')

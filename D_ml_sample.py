@@ -42,105 +42,13 @@ li_path = r'data\int\D_lito_map\li_class_by_mine.csv'
 poly_path = r'data\dcrm_cluster_data\dcrm_cluster_data\mine_polygons.gpkg'
 area_path = r'data\int\D_land_map\allocated_area_union_geom.gpkg'
 cluster_path = r'data\dcrm_cluster_data\dcrm_cluster_data\cluster_points_concordance.csv'
+
+world_bound_p = r'data\world_bound\world-administrative-boundaries.shp'
+eps_p = r'data\eps\OECD,DF_EPS,+all(1).csv'
+area_p = r'data\int\D_land_map\allocated_area.gpkg'
 all_coms = False
 
 sig = .05
-
-###########################################Function############################################
-
-# def return_integrated_values(row, df_res, ua = False, **kwargs):
-#     '''
-#     This function is used to return the integrated values for the production model.
-#     The function is used in the apply method of the dataframe.
-#     '''
-#     # specify the model type
-
-#     period = 2019 - df_res[df_res.Prop_id == row['Prop_id']]['Start_up_year'].values[0]
-    
-
-#     if ua == False: 
-#         if row['Class'] == 'H':
-#             p1, p2, p3 = df_res[(df_res.Prop_id == row['Prop_id']) & 
-#                                 (df_res.Target_var == row['Target_var']) &
-#                                 (df_res.Model == 'hubbert')][['P1_value', 'P2_value', 'P3_value']].values.flatten()
-#             return period, hubbert_model(period, p1, p2, p3)
-            
-#         elif row['Class'] == 'F':
-#             # unpack the values
-#             p1, p2 = df_res[(df_res.Prop_id == row['Prop_id']) & 
-#                                 (df_res.Target_var == row['Target_var']) &
-#                                 (df_res.Model == 'femp')][['P1_value', 'P2_value']].values.flatten()
-#             return period, femp(period, p1, p2)
-
-#         else:
-#             return period, None   
-        
-#     else:
-#         sample_size = kwargs['sample_size']
-        
-#         period = np.repeat(period, sample_size)
-
-#         if row['Class'] == 'H':
-#             # Extract parameter values
-#             p1, p2, p3 = df_res[(df_res.Prop_id == row['Prop_id']) & 
-#                                 (df_res.Target_var == row['Target_var']) &
-#                                 (df_res.Model == 'hubbert')][['P1_value', 'P2_value', 'P3_value']].values.flatten()
-
-#             p1_err, p2_err, p3_err = df_res[(df_res.Prop_id == row['Prop_id']) & 
-#                                             (df_res.Target_var == row['Target_var']) &
-#                                             (df_res.Model == 'hubbert')][['P1_err', 'P2_err', 'P3_err']].values.flatten()
-
-#             # Log-normal distribution requires the log-transformed parameters for initialization
-#             p1_mean_log = np.log(p1)
-#             p1_std_log = p1_err / p1  # Approximation assuming small relative error
-
-#             p3_mean_log = np.log(p3)
-#             p3_std_log = p3_err / p3  # Approximation assuming small relativimpor
-
-#             # Initialize distributions
-#             p1_distrib = lognorm(s=p1_std_log, scale=np.exp(p1_mean_log))
-#             p2_distrib = norm(loc=p2, scale=p2_err)  # Normal distribution
-#             p3_distrib = lognorm(s=p3_std_log, scale=np.exp(p3_mean_log))
-
-#             # Draw 1 sample from each distribution
-#             p1_sample = p1_distrib.rvs(sample_size)[0]
-#             p2_sample = p2_distrib.rvs(sample_size)[0]
-#             p3_sample = p3_distrib.rvs(sample_size)[0]
-
-#             # Return the result of the Hubbert model
-#             return period[0], hubbert_model(period, p1_sample, p2_sample, p3_sample)
-            
-
-#         elif row['Class'] == 'F':
-#             # unpack the values
-#             p1, p2 = df_res[(df_res.Prop_id == row['Prop_id']) & 
-#                                 (df_res.Target_var == row['Target_var']) &
-#                                 (df_res.Model == 'femp')][['P1_value', 'P2_value']].values.flatten()
-            
-#             p1_err, p2_err = df_res[(df_res.Prop_id == row['Prop_id']) & 
-#                                 (df_res.Target_var == row['Target_var']) &
-#                                 (df_res.Model == 'femp')][['P1_err', 'P2_err']].values.flatten()
-            
-#             # p1-R0, p2- C
-
-#             p1_mean_log = np.log(p1)
-#             p1_std_log = p1_err / p1
-            
-
-#             p1_distrib = lognorm(s = p1_mean_log scale = p1_std_log)
-#             p2_distrib = norm(loc = p2, scale = p2_err)
-
-            
-#             # draw 1 sample from the distribution - does the inverse already of the lonorm
-#             p1_sample = p1_distrib.rvs(sample_size)[0]
-#             p2_sample = p2_distrib.rvs(sample_size)[0]
-            
-#             return period, femp(period, p1_sample, p2_sample)
-        
-        
-#         else:    
-#             return period, None
-
 
 
 def get_cumsum():
@@ -167,6 +75,9 @@ def get_cumsum():
     df_res.rename(columns={'Start_up_year_x': 'Start_up_year', 'F_p_star': 'Cum_prod', 'F_upper_ci': 'Cum_prod_upper', 'F_lower_ci': 'Cum_prod_lower'}, inplace=True)
 
     df_cont = add_mine_context(df_res)
+
+    # Transform the Prop_id col to string
+    df_cont['Prop_id'] = df_cont['Prop_id'].astype(str)
 
     return df_cont
 
@@ -311,9 +222,6 @@ def get_eps_per_mine():
     
     
     '''
-    world_bound_p = r'data\world_bound\world-administrative-boundaries.shp'
-    eps_p = r'data\eps\OECD,DF_EPS,+all(1).csv'
-    area_p = r'data\int\D_land_map\allocated_area.gpkg'
 
     eps = pd.read_csv(eps_p)
     eps_f = eps[eps['VAR'] == 'EPS']
@@ -350,15 +258,18 @@ def get_eps_per_mine():
     assert m['id_data_source'].nunique() == m.shape[0], 'The id_data_source is not unique'
     return m
 
+
 #################################################Main############################################
 def main():
 
-    #cumsum = get_cumsum()
-   
+    cumsum = get_cumsum()
+    
+    # merge the area with the mines
     area_com = get_coms_to_area()
 
     li = pd.read_csv(li_path)
 
+    # transform the material col
     area_com_trans = com_col_trans(area_com, do_all_coms=all_coms)
 
     merge_li = area_com_trans.merge(li, on='id_data_source', how='left')
@@ -367,7 +278,22 @@ def main():
 
     merge_eps = merge_li.merge(eps, on='id_data_source', how='left')
 
+    # transform the geography column in latitude longitude
+    merge_eps['Latitude'], merge_eps['Longitude'] = merge_eps.geometry.y, merge_eps.geometry.x
 
+
+    cumsum_final = cumsum.merge(merge_eps, left_on = 'Prop_id', right_on = 'id_data_source', how = 'left')
+
+    cols_to_drop = ['Unnamed: 0', 'geometry','id_data_source', 'continent', 'iso3', 'COU']
+
+    cumsum_final.drop(columns= cols_to_drop, inplace = True)
+
+    cumsum_final = cumsum_final[~cumsum_final.Latitude.isna()]
+
+    # Filter out zeros only columns
+    cumsum_final = cumsum_final[~cumsum_final.isnull()]
+
+    df_to_csv_int(cumsum_final, 'ml_sample')
 
 
 if __name__ == '__main__':

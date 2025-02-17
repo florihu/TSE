@@ -18,7 +18,7 @@ from collections import defaultdict
 from pyvis.network import Network
 
 from util import save_fig, save_fig_plotnine, data_to_csv_int
-from E_sample_explo import plot_network
+from E_ml_explo import plot_network
 
 
 

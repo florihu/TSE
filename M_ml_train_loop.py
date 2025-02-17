@@ -24,7 +24,7 @@ from sklearn.base import BaseEstimator, TransformerMixin
 
 from matplotlib import pyplot as plt
 
-from E_sample_explo import immpute_vars, unit_rename
+from E_ml_explo import immpute_vars, unit_rename
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, FunctionTransformer
 from util import save_fig, save_fig_plotnine

@@ -21,7 +21,7 @@ import seaborn as sns
 from scipy import stats
 import seaborn as sns
 from statsmodels.stats.outliers_influence import variance_inflation_factor
-from util import save_fig_plotnine, data_to_csv_int, df_to_gpkg, save_fig, get_path, df_to_latex, append_to_excel
+from util import save_fig_plotnine, df_to_csv_int, df_to_gpkg, save_fig, get_path, df_to_latex, append_to_excel
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.decomposition import PCA
@@ -34,6 +34,65 @@ from sklearn.linear_model import LinearRegression, ElasticNet
 from sklearn.svm import SVR
 
 import networkx as nx
+
+##########################################################Purpose##########################################################################
+
+
+#########################################################Params############################################################################
+
+vars = ['Prop_id', 'Target_var', 'Cum_prod', 'Cum_prod_lower', 'Cum_prod_upper',
+       'R2', 'NRMSE', 'Start_up_year', 'Prop_name', 'Polygon_count', 'Weight',
+       'Unary_area', 'Unary_area_weighted', 'Convex_hull_area',
+       'Convex_hull_area_weighted', 'Convex_hull_perimeter',
+       'Convex_hull_perimeter_weighted', 'Compactness', 'Compactness_weighted',
+       'Coalloc_mines_count', 'Primary_Chromium', 'Byprod_Chromium',
+       'Primary_Cobalt', 'Byprod_Cobalt', 'Primary_Copper', 'Byprod_Copper',
+       'Primary_Crude Oil', 'Byprod_Crude Oil', 'Primary_Gold', 'Byprod_Gold',
+       'Primary_Indium', 'Byprod_Indium', 'Primary_Iron', 'Byprod_Iron',
+       'Primary_Lead', 'Byprod_Lead', 'Primary_Manganese', 'Byprod_Manganese',
+       'Primary_Molybdenum', 'Byprod_Molybdenum', 'Primary_Nickel',
+       'Byprod_Nickel', 'Primary_Palladium', 'Byprod_Palladium',
+       'Primary_Platinum', 'Byprod_Platinum', 'Primary_Rhenium',
+       'Byprod_Rhenium', 'Primary_Silver', 'Byprod_Silver', 'Primary_Tin',
+       'Byprod_Tin', 'Primary_Titanium', 'Byprod_Titanium', 'Primary_Tungsten',
+       'Byprod_Tungsten', 'Primary_Uranium', 'Byprod_Uranium',
+       'Primary_Vanadium', 'Byprod_Vanadium', 'Primary_Zinc', 'Byprod_Zinc',
+       'ev', 'mt', 'nd', 'pa', 'pb', 'pi', 'py', 'sc', 'sm', 'ss', 'su', 'va',
+       'vb', 'vi', 'wb',  'Latitude', 'Longitude']
+    
+
+num_vars = ['Cum_prod',
+    'Polygon_count', 'Weight',
+    'Unary_area', 'Unary_area_weighted', 'Convex_hull_area',
+    'Convex_hull_area_weighted', 'Convex_hull_perimeter',
+    'Convex_hull_perimeter_weighted', 'Compactness', 'Compactness_weighted',
+    'Coalloc_mines_count', 'EPS_mean', 'EPS_slope', 'Latitude', 'Longitude']
+
+id = ['Prop_id', 'Target_var', 'Prop_name']
+
+
+cat_vars = ['Primary_Chromium', 'Byprod_Chromium',
+    'Primary_Cobalt', 'Byprod_Cobalt', 'Primary_Copper', 'Byprod_Copper',
+    'Primary_Crude Oil', 'Byprod_Crude Oil', 'Primary_Gold', 'Byprod_Gold',
+    'Primary_Indium', 'Byprod_Indium', 'Primary_Iron', 'Byprod_Iron',
+    'Primary_Lead', 'Byprod_Lead', 'Primary_Manganese', 'Byprod_Manganese',
+    'Primary_Molybdenum', 'Byprod_Molybdenum', 'Primary_Nickel',
+    'Byprod_Nickel', 'Primary_Palladium', 'Byprod_Palladium',
+    'Primary_Platinum', 'Byprod_Platinum', 'Primary_Rhenium',
+    'Byprod_Rhenium', 'Primary_Silver', 'Byprod_Silver', 'Primary_Tin',
+    'Byprod_Tin', 'Primary_Titanium', 'Byprod_Titanium', 'Primary_Tungsten',
+    'Byprod_Tungsten', 'Primary_Uranium', 'Byprod_Uranium',
+    'Primary_Vanadium', 'Byprod_Vanadium', 'Primary_Zinc', 'Byprod_Zinc',
+    'ev', 'mt', 'nd', 'pa', 'pb', 'pi', 'py', 'sc', 'sm', 'ss', 'su', 'va',
+    'vb', 'vi', 'wb']
+
+
+cum_target_var_rename = {'Concentrate_production':'CCP',
+                         'Ore_processed_mass': 'COP',
+                         'Tailings_production': 'CTP'}
+
+
+##################################################################Functions################################################################
 
 def multi_cor(cor, name, sig_level=0.05):    
    
@@ -196,34 +255,45 @@ def hist_per_var_type(df, name, cat_vars, num_vars, units):
 
     return None
 
-def test_normality(df, name, num_vars, alpha=0.001):
+def test_normality(alpha=0.05):
    
+    df = get_data()
     # Create a DataFrame to store the results
-    normality_results = pd.DataFrame(index=num_vars, columns=['Shapiro_Wilk_stat', 'Shapiro_Wilk_p', 'Log_Shapiro_Wilk_stat', 'Log_Shapiro_Wilk_p'])
+    res = []
     
-    # Test the normality of the numerical variables
-    for var in num_vars:
-        # Get the data for the variable
-        data = df[var].dropna()
-        
-        # Perform the Shapiro-Wilk test
-        shapiro_stat, shapiro_p = stats.shapiro(data)
-        normality_results.loc[var, 'Shapiro_Wilk_p'] = shapiro_p
-        normality_results.loc[var, 'Shapiro_Wilk_stat'] = shapiro_stat
 
-        
-        data_log = np.log(data)
-        shapiro_stat_log, shapiro_p_log = stats.shapiro(data_log)
-        normality_results.loc[var, 'Log_Shapiro_Wilk_p'] = shapiro_p_log
-        normality_results.loc[var, 'Log_Shapiro_Wilk_stat'] = shapiro_stat_log
+    for name in ['Ore_processed_mass', 'Concentrate_production', 'Tailings_production']:
 
+        t = df[df.Target_var == name]
 
+        t= clean_and_imput(t)
+
+        t = t[num_vars]
+
+        for var in num_vars:
+                       
+            # Perform the Shapiro-Wilk test
+            shapiro_stat, shapiro_p = stats.shapiro(t[var])
+            
+            data_log = np.log(t[var])
+            shapiro_stat_log, shapiro_p_log = stats.shapiro(data_log)
+
+            res.append(pd.DataFrame({'Variable': var, 'Target_var': name,  'Norm_stat': shapiro_stat, 'Norm_p': shapiro_p,
+                                     'Log_stat':shapiro_stat_log, 'Log_p':shapiro_p_log }, index=[0]))
+            
+    res = pd.concat(res, ignore_index=True)
+    
+    res['Target_var'].replace(cum_target_var_rename, inplace=True)
+
+    res[['Norm_stat', 'Norm_p', 'Log_stat', 'Log_p']] = res[['Norm_stat', 'Norm_p', 'Log_stat', 'Log_p']].apply(lambda x: x.round(3))
+
+    # format to three digits
+    res['Norm_stat'] = res['Norm_stat'].apply(lambda x: f"{x:.3f}")
+    
     # Save the results to a LaTeX table
-    append_to_excel(stat_res_p, normality_results,  f'{name}_normality_results')
-    
-    log_vars = [col for col in normality_results.index if normality_results.loc[col, 'Log_Shapiro_Wilk_p'] > alpha]
+    df_to_csv_int(res, 'normality_test_results')
 
-    return log_vars
+    return 
 
 def fit_random_forest(df, name, log_vars, cat_vars, num_vars, target_vars):
     '''
@@ -297,7 +367,6 @@ def immpute_vars(df,cat_vars, num_vars):
     df.dropna(subset='geometry', inplace=True)
     return df
 
-
 def summary_stats(df, name,  cat_vars, num_vars, units):
     # percentage of missing values per var relative to samples
     missing = (df.isnull().mean().round(2) / len(df)) * 100
@@ -320,7 +389,6 @@ def summary_stats(df, name,  cat_vars, num_vars, units):
 
     return None
 
-
 def cramers_v(confusion_matrix):
     """ calculate Cramers V statistic for categorial-categorial association.
         uses correction from Bergsma and Wicher,
@@ -335,7 +403,23 @@ def cramers_v(confusion_matrix):
     kcorr = k - ((k - 1) ** 2) / (n - 1)
     return np.sqrt(phi2corr / min((kcorr - 1), (rcorr - 1))), p_val
 
-def corr_calc(df, name, log_vars, cat_vars, num_vars, units):
+
+
+def clean_and_imput(df):
+    # Drop cols
+    df.drop(columns= ['Unnamed: 0'], inplace = True)
+
+    # Remove Zero cols
+    df = df[~df.isnull()]
+
+    # impute 
+    df[['EPS_mean', 'EPS_slope']] = df[['EPS_mean', 'EPS_slope']].fillna(df[['EPS_mean', 'EPS_slope']].mean())
+
+    return df
+
+
+
+def corr_calc():
 
     """
     Calculate correlations for:
@@ -345,109 +429,88 @@ def corr_calc(df, name, log_vars, cat_vars, num_vars, units):
     Includes p-values for significance testing, and returns all results in a single DataFrame.
     """
     # Transform numerical variables to log scale
-    units = units.copy()
-    df.drop(['geometry', 'Prop_id', 'id_data_source', 'COU', 'continent', 'iso3', 'Unnamed: 0'], axis=1, inplace=True)
     
-    df = immpute_vars(df, cat_vars, num_vars)
-
-    log_vars = test_normality(df, name, num_vars)
-
-    df[log_vars] = df[log_vars].apply(lambda x: np.log10(x.clip(lower=1e-10)))
-
-    df, num_vars = unit_rename(df, log_vars, num_vars, units)
-
-    #get binary columns that are zero
-    binary_cols = df.columns[(df.sum() == 0)]
+    df = get_data()
     
-    #remove these from cat_vars
-    cat_vars = [col for col in cat_vars if col not in binary_cols]
-    
-    # Initialize a list to collect results
     results = []
 
-    # Numerical vs Numerical
-    for var1 in num_vars:
-        for var2 in num_vars:
-            if var1 != var2:
-                corr, p_val = stats.pearsonr(df[var1], df[var2])
-                results.append({
-                    'Variable 1': var1,
-                    'Variable 2': var2,
-                    'Type 1': 'numerical',
-                    'Type 2': 'numerical',
-                    'Test_Type': 'Pearson',
-                    'Correlation': corr,
-                    'P-Value': p_val
-                })
 
-    # Categorical vs Numerical
-    for var1 in cat_vars:
-        for var2 in num_vars:
-            if var1 != var2:
-                corr, p_val = stats.pointbiserialr(df[var1].astype(int), df[var2])
-                results.append({
-                    'Variable 1': var1,
-                    'Variable 2': var2,
-                    'Type 1': 'binary',
-                    'Type 2': 'numerical',
-                    'Test_Type': 'Point Biserial',
-                    'Correlation': corr,
-                    'P-Value': p_val
-                })
-                # Out of consistency the inverse is also included thi is in the case of num-num etc. already by definition included.
-                results.append({
-                    'Variable 1': var2,
-                    'Variable 2': var1,
-                    'Type 1': 'numerical',
-                    'Type 2': 'binary',
-                    'Test_Type': 'Point Biserial',
-                    'Correlation': corr,
-                    'P-Value': p_val
-                })
+    for name in ['Ore_processed_mass', 'Concentrate_production', 'Tailings_production']:
+        df = df[df.Target_vars == name]
 
+        df = clean_and_imput(df)
 
-    # cat vs cat
-    for var1 in cat_vars:
-        for var2 in cat_vars:
-            if var1 != var2 and df[var1].nunique() == 2 and df[var2].nunique() == 2:
-                contingency = pd.crosstab(df[var1].astype(int), df[var2].astype(int))
-                chi2, p_val, _, _ = stats.chi2_contingency(contingency)
-                n = contingency.sum().sum()
-                phi = (chi2 / n) ** 0.5
-                results.append({
-                    'Variable 1': var1,
-                    'Variable 2': var2,
-                    'Type 1': 'binary',
-                    'Type 2': 'binary',
-                    'Test_Type': 'Phi Coefficient',
-                    'Correlation': phi,
-                    'P-Value': p_val
-                })
+        # Numerical vs Numerical
+        for var1 in num_vars:
+            for var2 in num_vars:
+                if var1 != var2:
+                    corr, p_val = stats.pearsonr(df[var1], df[var2])
+                    results.append({
+                        'Target_var': name,
+                        'Variable 1': var1,
+                        'Variable 2': var2,
+                        'Type 1': 'numerical',
+                        'Type 2': 'numerical',
+                        'Test_Type': 'Pearson',
+                        'Correlation': corr,
+                        'P-Value': p_val
+                    })
+
+        # Categorical vs Numerical
+        for var1 in cat_vars:
+            for var2 in num_vars:
+                if var1 != var2:
+                    corr, p_val = stats.pointbiserialr(df[var1].astype(int), df[var2])
+                    results.append({
+                        'Target_var': name,
+                        'Variable 1': var1,
+                        'Variable 2': var2,
+                        'Type 1': 'binary',
+                        'Type 2': 'numerical',
+                        'Test_Type': 'Point Biserial',
+                        'Correlation': corr,
+                        'P-Value': p_val
+                    })
+                    # Out of consistency the inverse is also included thi is in the case of num-num etc. already by definition included.
+                    results.append({
+                        'Target_var': name,
+                        'Variable 1': var2,
+                        'Variable 2': var1,
+                        'Type 1': 'numerical',
+                        'Type 2': 'binary',
+                        'Test_Type': 'Point Biserial',
+                        'Correlation': corr,
+                        'P-Value': p_val
+                    })
+
+        # cat vs cat
+        for var1 in cat_vars:
+            for var2 in cat_vars:
+                if var1 != var2 and df[var1].nunique() == 2 and df[var2].nunique() == 2:
+                    contingency = pd.crosstab(df[var1].astype(int), df[var2].astype(int))
+                    chi2, p_val, _, _ = stats.chi2_contingency(contingency)
+                    n = contingency.sum().sum()
+                    phi = (chi2 / n) ** 0.5
+                    results.append({
+                        'Target_var': name,
+                        'Variable 1': var1,
+                        'Variable 2': var2,
+                        'Type 1': 'binary',
+                        'Type 2': 'binary',
+                        'Test_Type': 'Phi Coefficient',
+                        'Correlation': phi,
+                        'P-Value': p_val
+                    })
 
     # Convert results to a DataFrame
     results_df = pd.DataFrame(results)
 
-    if name == 'tailings':
-        # print for tailings_production and concentrate_production all stat significant variables
-        stat_sig_tailings_var = results_df[(results_df['Variable 1'] == 'Tailings_production log t') & (results_df['P-Value'] < 0.05)]['Variable 2'].unique()
-        print(f'Tailings_production significant variables: {stat_sig_tailings_var}')
+    results_df['Target_var'].replace(cum_target_var_rename, inplace=True)
 
-        # print out only including the target var and the significant variables
-        res_tailings = results_df[(results_df['Variable 1'] == 'Tailings_production log t') & (results_df['P-Value'] < 0.05)]
+    df_to_csv_int(results_df)
+    
 
-        stat_sig_concentrate_var = results_df[(results_df['Variable 1'] == 'Concentrate_production log t') & (results_df['P-Value'] < 0.05)]['Variable 2'].unique()
-        print(f'Concentrate_production significant variables: {stat_sig_concentrate_var}')
-
-    elif name == 'waste_rock':
-        # print for waste_rock_production and ore_processed_mass all stat significant variables
-        stat_sig_waste_rock_var = results_df[(results_df['Variable 1'] == 'Waste_rock_production log t') & (results_df['P-Value'] < 0.05)]['Variable 2'].unique()
-        print(f'Waste_rock_production significant variables: {stat_sig_waste_rock_var}')
-
-        stat_sig_ore_processed_var = results_df[(results_df['Variable 1'] == 'Ore_processed_mass log t') & (results_df['P-Value'] < 0.05)]['Variable 2'].unique()
-        print(f'Ore_processed_mass significant variables: {stat_sig_ore_processed_var}')
-
-    append_to_excel(stat_res_p, results_df, f'{name}_correlation_results')
-
+    
     return results_df
 
 
@@ -537,7 +600,6 @@ def pca(df, name, log_vars, num_vars, target_vars):
     save_fig_plotnine(plot, f'{name}_explained_variance.png', w=10, h=6)
 
     return None
-
 
 def bin_network(df, cat_vars, num_vars, name):
     # Impute missing values for categorical and numerical variables
@@ -680,74 +742,18 @@ def spatial_plot(df, target_vars, cat_vars, num_vars, wb):
         
     return None
 
+def get_data():
 
-
-
-
-def main():
-
+    d_path = 'data\int\D_ml_sample\ml_sample.csv'
     
-    cat_vars =  ['Primary_Chromium',
-       'Byprod_Chromium', 'Primary_Cobalt', 'Byprod_Cobalt', 'Primary_Copper',
-       'Byprod_Copper', 'Primary_Crude Oil', 'Byprod_Crude Oil',
-       'Primary_Gold', 'Byprod_Gold', 'Primary_Indium', 'Byprod_Indium',
-       'Primary_Iron', 'Byprod_Iron', 'Primary_Lead', 'Byprod_Lead',
-       'Primary_Manganese', 'Byprod_Manganese', 'Primary_Molybdenum',
-       'Byprod_Molybdenum', 'Primary_Nickel', 'Byprod_Nickel',
-       'Primary_Palladium', 'Byprod_Palladium', 'Primary_Platinum',
-       'Byprod_Platinum', 'Primary_Rhenium', 'Byprod_Rhenium',
-       'Primary_Silver', 'Byprod_Silver', 'Primary_Tin', 'Byprod_Tin',
-       'Primary_Titanium', 'Byprod_Titanium', 'Primary_Tungsten',
-       'Byprod_Tungsten', 'Primary_Uranium', 'Byprod_Uranium',
-       'Primary_Vanadium', 'Byprod_Vanadium', 'Primary_Zinc', 'Byprod_Zinc',
-       'ev', 'mt', 'nd', 'pa', 'pb', 'pi', 'py', 'sc', 'sm',
-       'ss', 'su', 'va', 'vb', 'vi', 'wb']
-    
-    num_vars = ['Active_years',
-       'Polygon_count', 'Weight', 'Area_mine', 'Area_mine_weighted',
-       'Convex_hull_area', 'Convex_hull_area_weighted',
-       'Convex_hull_perimeter', 'Convex_hull_perimeter_weighted',
-       'Compactness', 'Compactness_weighted', 'EPS_mean', 'EPS_slope']
-
-    units = {'Active_years':'years', 'Concentrate_production':'t', 'Tailings_production': 't',
-        'Polygon_count': 'count', 'Area_mine': 'km2', 'Area_mine_weighted':'km2',
-        'Convex_hull_area': 'km2', 'Convex_hull_area_weighted': 'km2',
-            'Convex_hull_perimeter': 'km', 'Convex_hull_perimeter_weighted': 'km',
-            'Compactness': 'ratio', 'Compactness_weighted': 'ratio', 'Weight': 'ratio',
-            'Waste_rock_production': 't', 'Ore_processed_mass': 't', 'Count': 'count', 'EPS_mean':'score', 'EPS_slope':'score' }
+    d = pd.read_csv(d_path)
+    return d
 
 
-    world_bounds_p = r'data\world_bound\world-administrative-boundaries.shp'
+################################################################Main#######################################################################
 
-    wb = gpd.read_file(world_bounds_p)
 
-    for name in ['tailings', 'waste_rock']:
-        
-        if name == 'tailings':
-            path = get_path('tailings.gpkg')
-            log_vars = ['Active_years', 'Concentrate_production', 'Tailings_production', 'Convex_hull_area', 'Convex_hull_perimeter', 'Convex_hull_perimeter_weighted']
-            target_vars = ['Tailings_production', 'Concentrate_production']
-
-            feature_selection = ['Area_mine', 'Byprod_gold' ]
-
-            # unit_conv is in log var add log to the unit
-            #unit_conv = unit_renaming(log_vars, unit_conv)
-            
-
-        if name == 'waste_rock':
-            path = get_path('waste_rock.gpkg')
-            log_vars = ['Active_years', 'Ore_processed_mass', 'Polygon_count', 'Weight', 'Area_mine', 'Area_mine_weighted','Convex_hull_area','Convex_hull_area_weighted' ,'Convex_hull_perimeter', 'Convex_hull_perimeter_weighted']
-            target_vars = ['Waste_rock_production', 'Ore_processed_mass']
-            #unit_conv = unit_renaming(log_vars, unit_conv)
-                    
-        num_vars_extend = num_vars + target_vars
-
-        
-
-        sample = gpd.read_file(path)
-        spatial_plot(sample, target_vars, cat_vars, num_vars, wb)
-    return None
 
 
 if __name__ == '__main__':
-    main()
+    test_normality()

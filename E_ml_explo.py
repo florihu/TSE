@@ -34,7 +34,7 @@ from sklearn.svm import SVR
 import networkx as nx
 
 
-from util import save_fig_plotnine, df_to_csv_int, df_to_gpkg, save_fig, get_path, df_to_latex, append_to_excel
+from util import save_fig_plotnine, df_to_csv_int, df_to_gpkg, save_fig, get_path, df_to_latex, append_to_excel, df_to_latex
 ##########################################################Purpose##########################################################################
 
 
@@ -140,8 +140,6 @@ def corr_heat_plot(p = r'data\int\E_ml_explo\correlation_results.csv', sig_level
             
         # Save the plot
         save_fig_plotnine(plot, f'{name}_correlation_matrix_heatmap.png', w=24, h=24)
-
-
 
     pass
 
@@ -433,7 +431,6 @@ def cramers_v(confusion_matrix):
     return np.sqrt(phi2corr / min((kcorr - 1), (rcorr - 1))), p_val
 
 
-
 def clean_and_imput(df):
     # Drop cols
     df.drop(columns= ['Unnamed: 0'], inplace = True)
@@ -594,49 +591,57 @@ def pairplot():
         plt.show()
 
 
-def pca(df, name, log_vars, num_vars, target_vars):
+def pca():
     '''
     Perform PCA on the numerical variables of the DataFrame and return the results in a DataFrame.
     '''
     # Transform numerical variables to log scale
+
+    df = get_data()
     df[log_vars] = df[log_vars].apply(np.log10)
 
-    df.drop(target_vars, axis=1, inplace=True)
+    vars = num_vars + cat_vars
 
-    # Standardize the data
-    scaler = MinMaxScaler()
-    df_scaled = scaler.fit_transform(df)
+    for name in ['Ore_processed_mass', 'Concentrate_production', 'Tailings_production']:
+        
+        
 
-    # Perform PCA
-    pca = PCA()
-    pca_results = pca.fit_transform(df_scaled)
+        t = df[df.Target_var == name][vars]
 
-    # explained variance
-    explained_variance = pca.explained_variance_ratio_
+        # Standardize the data
+        scaler = MinMaxScaler()
+        t_scaled = scaler.fit_transform(t)
 
-    explained_variance_df = pd.DataFrame(explained_variance, columns=['Explained Variance'])
-    explained_variance_df.index = [i+1 for i in range(pca_results.shape[1])]
-    explained_variance_df = explained_variance_df.round(4)
-    explained_variance_df['Cummulative Explained Variance'] = explained_variance_df['Explained Variance'].cumsum()
+        # Perform PCA
+        pca = PCA()
+        pca_results = pca.fit_transform(t)
 
-    # reset index and rename to component
-    explained_variance_df.reset_index(inplace=True)
-    explained_variance_df.rename(columns={'index': 'Component'}, inplace=True)
+        # explained variance
+        explained_variance = pca.explained_variance_ratio_
 
-    # plot explained variance - plotnine scatter
-    plot = (
-        ggplot(explained_variance_df, aes(x='Component', y='Cummulative Explained Variance'))
-        + geom_point()
-        + theme_minimal()
-        + labs(x='Component', y='Cummulative Explained Variance (%)')
-    )
-    # Make a vertical line at 80% explained variance
-    plot += geom_hline(yintercept=0.8, linetype='dashed', color='red')
+        explained_variance_df = pd.DataFrame(explained_variance, columns=['Explained Variance'])
+        explained_variance_df.index = [i+1 for i in range(pca_results.shape[1])]
+        explained_variance_df = explained_variance_df.round(4)
+        explained_variance_df['Cummulative Explained Variance'] = explained_variance_df['Explained Variance'].cumsum()
 
-    # Save the plot
-    save_fig_plotnine(plot, f'{name}_explained_variance.png', w=10, h=6)
+        # reset index and rename to component
+        explained_variance_df.reset_index(inplace=True)
+        explained_variance_df.rename(columns={'index': 'Component'}, inplace=True)
 
-    return None
+        # plot explained variance - plotnine scatter
+        plot = (
+            ggplot(explained_variance_df, aes(x='Component', y='Cummulative Explained Variance'))
+            + geom_point()
+            + theme_minimal()
+            + labs(x='Component', y='Cummulative Explained Variance (%)')
+        )
+        # Make a vertical line at 80% explained variance
+        plot += geom_hline(yintercept=0.8, linetype='dashed', color='red')
+
+        # Save the plot
+        save_fig_plotnine(plot, f'{name}_explained_variance.png', w=10, h=6)
+
+        return None
 
 def bin_network(df, cat_vars, num_vars, name):
     # Impute missing values for categorical and numerical variables
@@ -733,13 +738,28 @@ def plot_network(G, name):
     plt.show()
 
 
-def sample_characteristics(df, name, cat_vars, num_vars, target_vars, units):
-    '''
-    Output numer of samples, and number of primary copper nickel and zinkc mines
+def sample_characteristics():
+    d = get_data()
+
+    for name in ['Ore_processed_mass', 'Concentrate_production', 'Tailings_production']:
+        t = d[d.Target_var == name]
+        t = clean_and_imput(t)
+
+        var_vars = num_vars + cat_vars
+
+        stat = t[var_vars].describe().round(2).T
+
+        # include for all variable names a \ before the _
+        stat.index = stat.index.str.replace('_', '\_')
+
+        stat.columns = stat.columns.str.replace('%', '\%')
+
+        df_to_latex(stat, f'{name}_stat.tex', longtable=True)
+
+        
 
 
-    
-    '''
+
     return None
 
 def spatial_plot(df, target_vars, cat_vars, num_vars, wb):
@@ -793,4 +813,4 @@ def get_data():
 
 
 if __name__ == '__main__':
-    corr_heat_plot()
+    pca()

@@ -59,7 +59,7 @@ def save_fig_plotnine(plot, name, w=8, h=6, dpi=600):
 
     return None
 
-def df_to_latex(df, filename, multicolumn=False):
+def df_to_latex(df, filename, multicolumn=False, longtable=False):
     base_folder = 'tab'
 
     calling_script = inspect.stack()[1].filename
@@ -70,7 +70,7 @@ def df_to_latex(df, filename, multicolumn=False):
         os.makedirs(path)
     
     # Convert DataFrame to LaTeX table format
-    latex_table = df.to_latex(float_format="%.2f", multicolumn=multicolumn)
+    latex_table = df.to_latex(float_format="%.2f", multicolumn=multicolumn, longtable=longtable)
     # Write LaTeX table to a .tex file
     with open(f'{path}/{filename}.tex', 'w') as f:
         f.write(latex_table)
@@ -180,3 +180,10 @@ def pairplot(source, columns, color_column=None, shape_column=None, use_facet_gr
         return gg + facet_grid('col1 ~ col2')
     else:
         return gg + facet_wrap('~ col1 + col2', scales='free')
+    
+
+def get_world_bounds(crs):
+    world_bounds_p = r'data\world_bound\world-administrative-boundaries.shp'
+    wb = gpd.read_file(world_bounds_p)
+    wb.to_crs(crs, inplace=True)
+    return wb

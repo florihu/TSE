@@ -110,8 +110,6 @@ def histplot_with_v_line(df):
     p.draw()
 
     return None
-
-
     
 def heatmap_missing_values_per_mine(df, targets):
     '''

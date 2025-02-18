@@ -430,7 +430,6 @@ def cramers_v(confusion_matrix):
     kcorr = k - ((k - 1) ** 2) / (n - 1)
     return np.sqrt(phi2corr / min((kcorr - 1), (rcorr - 1))), p_val
 
-
 def clean_and_imput(df):
     # Drop cols
     df.drop(columns= ['Unnamed: 0'], inplace = True)
@@ -442,8 +441,6 @@ def clean_and_imput(df):
     df[['EPS_mean', 'EPS_slope']] = df[['EPS_mean', 'EPS_slope']].fillna(df[['EPS_mean', 'EPS_slope']].mean())
 
     return df
-
-
 
 def corr_calc():
     """
@@ -574,6 +571,8 @@ def vif(df, name, cat_vars, num_vars, target_vars, units):
 def pairplot():
     df = get_data()
 
+    df[log_vars] = df[log_vars].apply(np.log10)
+
     comb_vars = num_vars + cat_vars
 
     for name in ['Ore_processed_mass', 'Concentrate_production', 'Tailings_production']:
@@ -582,14 +581,13 @@ def pairplot():
 
         t= clean_and_imput(t)
 
-        f, ax = plt.subplots(figsize=(24, 24))
+        g = sns.pairplot(t[comb_vars])
 
-        sns.pairplot(t[comb_vars])
+        g.fig.figsize = (24, 24)
 
         save_fig(f'pairplot_{name}.png')
 
         plt.show()
-
 
 def pca():
     '''
@@ -737,7 +735,6 @@ def plot_network(G, name):
     # Show the plot
     plt.show()
 
-
 def sample_characteristics():
     d = get_data()
 
@@ -813,4 +810,4 @@ def get_data():
 
 
 if __name__ == '__main__':
-    pca()
+    pairplot()

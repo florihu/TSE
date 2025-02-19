@@ -48,8 +48,21 @@ from sklearn.decomposition import PCA
 
 from tqdm import tqdm
 
-from util import data_to_csv_int, save_fig, save_fig_plotnine
+from util import df_to_csv_int, save_fig, save_fig_plotnine
+from E_pca import get_data_per_var
 
+
+
+##################################################Purpose####################################################
+
+##################################################Params####################################################
+
+models = { 'ElasticNet': ElasticNet(), 'Lasso': Lasso(), 'LinearRegression': LinearRegression(), 'MLPRegressor': MLPRegressor(), 'Ridge': Ridge(), 'SVR': SVR(),   'RandomForestRegressor': RandomForestRegressor(), 'GradientBoostingRegressor': GradientBoostingRegressor()}
+    
+out_remove = True
+
+
+##################################################Functions####################################################
 
 def geography_similarity(df, make_plot = False):
     class ClusterSimilarity(BaseEstimator, TransformerMixin): 
@@ -277,15 +290,9 @@ def hype_loop(df):
     return res_df
 
 
-def train_loop(df):
+def get_comb(df):
 
-
-    df = geography_similarity(df, wb=None, make_plot=False)
-
-    var_selection = {'Tailings_production': ['Tailings_production', 'Area_mine', 'Weight', 'Compactness', 'Primary_Copper', 'Primary_Nickel', 'Primary_Silver', 'Primary_Zinc', 'va', 'max_similarity'],
-                     'Concentrate_production': ['Concentrate_production','Area_mine', 'Compactness', 'EPS_mean' , 'Primary_Copper', 'Primary_Silver',  'Primary_Zinc', 'pb', 'va', 'py', 'max_similarity'],
-                     }
-    
+    # only if the columns are present
 
     # Feature for stratisfied sampling
     df['Copper'] = df['Primary_Copper'] + df['Byprod_Copper']
@@ -294,49 +301,39 @@ def train_loop(df):
     production_features = ['Copper', 'Zinc', 'Nickel']
     
     df[production_features] = df[production_features].astype(int)
-    df['Combination'] = df[production_features].astype(str).agg('-'.join, axis=1)
-    
-    def log_pipeline():
-        # standard scale plus log
-        return make_pipeline(FunctionTransformer(np.log1p), MinMaxScaler())
-    
-    def no_log_pipeline():
-        # standard scale plus log
-        return make_pipeline(MinMaxScaler())
-    
+    comb= df[production_features].astype(str).agg('-'.join, axis=1)
+    return comb
 
-    models = {  'ElasticNet': ElasticNet(), 'Lasso': Lasso(), 'LinearRegression': LinearRegression(), 'MLPRegressor': MLPRegressor(), 'Ridge': Ridge(), 'SVR': SVR(),   'RandomForestRegressor': RandomForestRegressor(), 'GradientBoostingRegressor': GradientBoostingRegressor()}
-    
-    
-    transfo = {'Tailings_production': ColumnTransformer([('Tailings_production', log_pipeline(), ['Tailings_production']), 
-                                                         ('Area_mine', log_pipeline(), ['Area_mine'])]
-                                                         , remainder=no_log_pipeline()), 
-                'Concentrate_production': ColumnTransformer([('Concentrate_production', log_pipeline(), ['Concentrate_production']), 
-                                                            ('Area_mine', log_pipeline(), ['Area_mine'])  ], remainder=no_log_pipeline()) 
-                }
-    
+def train_loop():
     
     res_df = pd.DataFrame(columns=['Model', 'Variable', 'Fold',  'R2_train', 'R2_test', 'RMSE_train', 'RMSE_test', 'MAE_train', 'MAE_test', 'CV_train', 'CV_test'])
 
-    for target_var, all_vars in var_selection.items():
+    for name in ['Ore_processed_mass', 'Concentrate_production', 'Tailings_production']:
 
-        df_trans = df[all_vars]
-        df_trans = pd.DataFrame(transfo[target_var].fit_transform(df_trans), columns=all_vars)
+        d = get_data_per_var(name, out_remove=out_remove)
 
+        y = d['Cum_prod'].to_numpy()   
+        X = d.drop('Cum_prod', axis=1)
 
-        y = df_trans[target_var]
-        X = df_trans.drop(target_var, axis=1)
-        X = pd.DataFrame(PCA(n_components=0.95).fit_transform(X))
+        comb = get_comb(d)
         
+        #Min Max Scale
+        scaler = MinMaxScaler()
+        X = scaler.fit_transform(X)
 
-        for train_idx, test_idx  in  StratifiedKFold(n_splits=5, shuffle=True, random_state=42).split(X.index, df['Combination']):
+        # pca
+        X = PCA(n_components=0.95).fit_transform(X)
+
+        idx = np.arange(X.shape[0])
+
+        for train_idx, test_idx  in  StratifiedKFold(n_splits=5, shuffle=True, random_state=42).split(idx, comb):
             
             count = 0
             
             for model_name, model in tqdm(models.items()):
             
-                X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
-                y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+                X_train, X_test = X[train_idx], X[test_idx]
+                y_train, y_test = y[train_idx], y[test_idx]
 
                 model.fit(X_train, y_train)
                 y_train_pred = model.predict(X_train)
@@ -348,25 +345,36 @@ def train_loop(df):
                 rmse_test = np.sqrt(np.mean((y_test - y_test_pred) ** 2))
                 mae_train = np.mean(np.abs(y_train - y_train_pred))
                 mae_test = np.mean(np.abs(y_test - y_test_pred))
-                cv_train = rmse_train / np.mean(y_train)
-                cv_test = rmse_test / np.mean(y_test)
+                nrmse_train = rmse_train / np.mean(y_train)
+                nrmse_test = rmse_test / np.mean(y_test)
 
-                res_df = pd.concat([res_df, pd.DataFrame([{ 'Model': model_name, 'Variable': target_var, 'Fold':count,'R2_train': r2_train, 'R2_test': r2_test, 'RMSE_train': rmse_train, 'RMSE_test': rmse_test, 'MAE_train': mae_train, 'MAE_test': mae_test, 'CV_train': cv_train, 'CV_test': cv_test}])], ignore_index=True)
+                res_df = pd.concat([res_df, pd.DataFrame([{ 'Model': model_name, 'Variable': name, 'Fold':count,'R2_train': r2_train, 'R2_test': r2_test, 'RMSE_train': rmse_train, 'RMSE_test': rmse_test, 'MAE_train': mae_train, 'MAE_test': mae_test, 'NRMSE_train': nrmse_train, 'NRMSE_test': nrmse_test}])], ignore_index=True)
             
             count += 1
     
-    data_to_csv_int(res_df, 'ml_train_loop_results')
+    if out_remove:
+        d_name = 'ml_train_loop_result_out_removed'
+    else:
+        d_name = 'ml_train_loop_result'
 
-    return res_df
+    df_to_csv_int(res_df, d_name)
+
+    pass
                 
-def plot_results(df, repfig = True):
+def plot_train_results():
     # Melt the DataFrame
+
+    if out_remove:
+        p = r'data\int\M_ml_train_loop\ml_train_loop_result_out_removed.csv'
+    else:
+        p = r'data\int\M_ml_train_loop\ml_train_loop_result.csv'
+
+    df = pd.read_csv(p)
 
     model_order = [
         'ElasticNet', 'Lasso', 'LinearRegression', 'Ridge', 'MLPRegressor', 
         'SVR', 'RandomForestRegressor', 'GradientBoostingRegressor'
     ]
-
 
 
     # Ensure the 'Model' column is ordered
@@ -377,11 +385,10 @@ def plot_results(df, repfig = True):
     melt = df.melt(
         id_vars=['Model', 'Variable', 'Fold'], 
         value_vars=['R2_test', 'R2_train', 'RMSE_train', 'RMSE_test', 
-                    'MAE_train', 'MAE_test', 'CV_train', 'CV_test'], 
+                    'MAE_train', 'MAE_test', 'NRMSE_train', 'NRMSE_test'], 
         var_name='Metric', 
         value_name='Value'
     )
-
 
    
     # Split 'Metric' into 'Metric_Type' and 'Data_Split'
@@ -395,23 +402,16 @@ def plot_results(df, repfig = True):
     # color for train and test
     color_dict = {'train': '#7570b3', 'test': '#d95f02'}
 
+    melt = melt[(melt.Metric_Type.isin(['R2', 'RMSE']) & (melt.Model != 'MLPRegressor'))]
 
-    for v in ['Concentrate_production', 'Tailings_production']:
-        
-        if repfig:
-        # r2 and CV only
-            melt = melt[melt['Metric_Type'].isin(['R2', 'CV'])]
-            fig_name = f'model_performance_{v}_repfig.png'
-        else:
-            fig_name = f'model_performance_{v}.png'
+    for v in ['Concentrate_production', 'Tailings_production', 'Ore_processed_mass']:
         
         melt_v = melt[melt['Variable'] == v]
-
-        
+   
         # Create a facet plot for each metric, coloring by 'Data_Split'
         p = (ggplot(melt_v, aes(x='Model', y='Value', color='Data_Split')) 
              + geom_boxplot() 
-             + facet_wrap('Metric_Type', scales='free_y') 
+             + facet_wrap('Metric_Type', scales='free') 
              + labs(x='Model', y='Value')
             + theme_minimal()
              + theme(
@@ -423,11 +423,13 @@ def plot_results(df, repfig = True):
         #use color_dict
         p += scale_color_manual(values=color_dict)
 
+        if out_remove:
+            save_fig_plotnine(p, f'ml_train_res_{v}_out_removed', dpi=800)
+        else:
+            # Save the plot
+            save_fig_plotnine(p, f'ml_train_res_{v}', dpi=800)
 
-        # Save the plot
-        save_fig_plotnine(p, fig_name, dpi=800)
-
-
+    pass
 
 
 def hype_results(df, repfig = True):
@@ -490,58 +492,14 @@ def hype_results(df, repfig = True):
         # Save the plot
         save_fig_plotnine(p, f'{v}_hype_opt_results', dpi=600)
 
-def main():
-    mines_p = r'data\int\D_train_tetst_df\features_all_mines.gpkg'
-    tailings_p = r'data\int\D_train_tetst_df\tailings.gpkg'
-
-    
-
-
-    cat_vars =  ['Primary_Chromium',
-       'Byprod_Chromium', 'Primary_Cobalt', 'Byprod_Cobalt', 'Primary_Copper',
-       'Byprod_Copper', 'Primary_Crude Oil', 'Byprod_Crude Oil',
-       'Primary_Gold', 'Byprod_Gold', 'Primary_Indium', 'Byprod_Indium',
-       'Primary_Iron', 'Byprod_Iron', 'Primary_Lead', 'Byprod_Lead',
-       'Primary_Manganese', 'Byprod_Manganese', 'Primary_Molybdenum',
-       'Byprod_Molybdenum', 'Primary_Nickel', 'Byprod_Nickel',
-       'Primary_Palladium', 'Byprod_Palladium', 'Primary_Platinum',
-       'Byprod_Platinum', 'Primary_Rhenium', 'Byprod_Rhenium',
-       'Primary_Silver', 'Byprod_Silver', 'Primary_Tin', 'Byprod_Tin',
-       'Primary_Titanium', 'Byprod_Titanium', 'Primary_Tungsten',
-       'Byprod_Tungsten', 'Primary_Uranium', 'Byprod_Uranium',
-       'Primary_Vanadium', 'Byprod_Vanadium', 'Primary_Zinc', 'Byprod_Zinc',
-       'ev', 'mt', 'nd', 'pa', 'pb', 'pi', 'py', 'sc', 'sm',
-       'ss', 'su', 'va', 'vb', 'vi', 'wb']
-    
-    num_vars = ['Tailings_production', 'Concentrate_production', 'Active_years',
-       'Polygon_count', 'Weight', 'Area_mine', 'Area_mine_weighted',
-       'Convex_hull_area', 'Convex_hull_area_weighted',
-       'Convex_hull_perimeter', 'Convex_hull_perimeter_weighted',
-       'Compactness', 'Compactness_weighted', 'EPS_mean', 'EPS_slope']
-
-    units = {'Active_years':'years', 'Concentrate_production':'t', 'Tailings_production': 't',
-        'Polygon_count': 'count', 'Area_mine': 'km2', 'Area_mine_weighted':'km2',
-        'Convex_hull_area': 'km2', 'Convex_hull_area_weighted': 'km2',
-            'Convex_hull_perimeter': 'km', 'Convex_hull_perimeter_weighted': 'km',
-            'Compactness': 'ratio', 'Compactness_weighted': 'ratio', 'Weight': 'ratio',
-            'Waste_rock_production': 't', 'Ore_processed_mass': 't', 'Count': 'count', 'EPS_mean':'score', 'EPS_slope':'score' }
-    
-    tailings = gpd.read_file(tailings_p)
-    tail_imp = immpute_vars(tailings, cat_vars, num_vars)
-
-    geography_similarity(tail_imp, make_plot=True)
-
-
-
-    pass
-
 
 def plot_hype_results(path = r'data\int\M_ml_train_loop\ml_hype_opt_results.csv'):
     df = pd.read_csv(path)
     hype_results(df, repfig=True)
 
 if __name__ == '__main__':
-    main()
+    train_loop()
+    plot_train_results()
 
 
 

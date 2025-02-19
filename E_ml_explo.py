@@ -589,57 +589,7 @@ def pairplot():
 
         plt.show()
 
-def pca():
-    '''
-    Perform PCA on the numerical variables of the DataFrame and return the results in a DataFrame.
-    '''
-    # Transform numerical variables to log scale
 
-    df = get_data()
-    df[log_vars] = df[log_vars].apply(np.log10)
-
-    vars = num_vars + cat_vars
-
-    for name in ['Ore_processed_mass', 'Concentrate_production', 'Tailings_production']:
-        
-        
-
-        t = df[df.Target_var == name][vars]
-
-        # Standardize the data
-        scaler = MinMaxScaler()
-        t_scaled = scaler.fit_transform(t)
-
-        # Perform PCA
-        pca = PCA()
-        pca_results = pca.fit_transform(t)
-
-        # explained variance
-        explained_variance = pca.explained_variance_ratio_
-
-        explained_variance_df = pd.DataFrame(explained_variance, columns=['Explained Variance'])
-        explained_variance_df.index = [i+1 for i in range(pca_results.shape[1])]
-        explained_variance_df = explained_variance_df.round(4)
-        explained_variance_df['Cummulative Explained Variance'] = explained_variance_df['Explained Variance'].cumsum()
-
-        # reset index and rename to component
-        explained_variance_df.reset_index(inplace=True)
-        explained_variance_df.rename(columns={'index': 'Component'}, inplace=True)
-
-        # plot explained variance - plotnine scatter
-        plot = (
-            ggplot(explained_variance_df, aes(x='Component', y='Cummulative Explained Variance'))
-            + geom_point()
-            + theme_minimal()
-            + labs(x='Component', y='Cummulative Explained Variance (%)')
-        )
-        # Make a vertical line at 80% explained variance
-        plot += geom_hline(yintercept=0.8, linetype='dashed', color='red')
-
-        # Save the plot
-        save_fig_plotnine(plot, f'{name}_explained_variance.png', w=10, h=6)
-
-        return None
 
 def bin_network(df, cat_vars, num_vars, name):
     # Impute missing values for categorical and numerical variables

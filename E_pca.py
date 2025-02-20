@@ -35,12 +35,11 @@ def get_data_per_var(name, out_remove = False):
     m = d.merge(geo, on=['Prop_id', 'Target_var'], how='left')
 
     m = clean_and_imput(m)
+    m[log_vars] = np.log1p(m[log_vars])
 
     geo_cols = [col for col in m.columns if 'Cluster' in col]
 
     vars = num_vars + cat_vars + geo_cols
-
-    m[log_vars] = np.log(m[log_vars])
 
     if out_remove:
         p = r'data\int\E_outlier_dbscan\anomalies.csv'

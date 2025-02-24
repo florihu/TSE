@@ -14,7 +14,7 @@ Output:
 import geopandas as gpd
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, KFold
 import seaborn as sns
 from sklearn.cluster import KMeans
 
@@ -33,6 +33,7 @@ from sklearn.pipeline import make_pipeline
 
 from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+
 
 from sklearn.svm import SVR
 from sklearn.neural_network import MLPRegressor
@@ -61,7 +62,12 @@ from E_ml_explo import log_vars
 models = { 'ElasticNet': ElasticNet(), 'Lasso': Lasso(), 'LinearRegression': LinearRegression(), 'MLPRegressor': MLPRegressor(), 'Ridge': Ridge(), 'SVR': SVR(),   'RandomForestRegressor': RandomForestRegressor(), 'GradientBoostingRegressor': GradientBoostingRegressor()}
 random_state = 42
 out_remove = False
-pre_pipe = make_pipeline(MinMaxScaler(), PCA(n_components=0.95))
+
+n_splits = 5
+thres_out = 5
+pre_pipe = make_pipeline(StandardScaler(), PCA(n_components=0.95))
+
+y_pipe = make_pipeline(FunctionTransformer(np.log, np.exp), StandardScaler())
 
 
 ##################################################Functions####################################################
@@ -109,6 +115,12 @@ def get_comb(df):
     comb= df[production_features].astype(str).agg('-'.join, axis=1)
     return comb
 
+
+def r2_calc(y_true, y_pred):
+    ss_res = np.sum((y_true - y_pred) ** 2)
+    ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
+    return 1 - (ss_res / ss_tot)
+
 def train_loop():
     
     res_df = pd.DataFrame(columns=['Model', 'Variable', 'Fold',  'R2_train', 'R2_test', 'RMSE_train', 'RMSE_test', 'MAE_train', 'MAE_test', 'NRMSE_train', 'NRMSE_test'])
@@ -116,18 +128,16 @@ def train_loop():
 
     for name in ['Ore_processed_mass', 'Concentrate_production', 'Tailings_production']:
 
-        d = get_data_per_var(name, out_remove=out_remove)
-
+        d = get_data_per_var(name, out_remove=out_remove, thres_out=thres_out)
+        
         y = d['Cum_prod']
         X = d.drop('Cum_prod', axis=1)
 
-        comb = get_comb(d)
-        
-        
-
         idx = np.arange(X.shape[0])
 
-        for train_idx, test_idx  in  StratifiedKFold(n_splits=5, shuffle=True, random_state=42).split(idx, comb):
+        comb = get_comb(d)
+
+        for train_idx, test_idx  in  StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42).split(idx, comb):
             
             count = 0
             
@@ -139,12 +149,21 @@ def train_loop():
                 X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
                 y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
 
+                y_train = y_pipe.fit_transform(y_train.values.reshape(-1, 1)).flatten()
+                y_test = y_pipe.transform(y_test.values.reshape(-1, 1)).flatten()
+
                 model.fit(X_train, y_train)
                 y_train_pred = model.predict(X_train)
                 y_test_pred = model.predict(X_test)
 
-                r2_train = model.score(X_train, y_train)
-                r2_test = model.score(X_test, y_test)
+                y_train_pred = y_pipe.inverse_transform(y_train_pred.reshape(-1, 1)).flatten()
+                y_test_pred = y_pipe.inverse_transform(y_test_pred.reshape(-1, 1)).flatten()
+                y_train = y_pipe.inverse_transform(y_train.reshape(-1, 1)).flatten()
+                y_test = y_pipe.inverse_transform(y_test.reshape(-1, 1)).flatten()
+                
+                r2_train = r2_calc(y_train, y_train_pred)
+                r2_test = r2_calc(y_test, y_test_pred)
+
                 rmse_train = np.sqrt(np.mean((y_train - y_train_pred) ** 2))
                 rmse_test = np.sqrt(np.mean((y_test - y_test_pred) ** 2))
                 mae_train = np.mean(np.abs(y_train - y_train_pred))
@@ -157,9 +176,9 @@ def train_loop():
             count += 1
     
     if out_remove:
-        d_name = 'ml_train_loop_result_out_removed'
+        d_name = f'ml_train_loop_result_out_removed'
     else:
-        d_name = 'ml_train_loop_result'
+        d_name = f'ml_train_loop_result'
 
     df_to_csv_int(res_df, d_name)
 
@@ -184,8 +203,9 @@ def plot_train_results():
     # Ensure the 'Model' column is ordered
     df['Model'] = pd.Categorical(df['Model'], categories=model_order, ordered=True)
 
+    df[['RMSE_train', 'RMSE_test']] = df[['RMSE_train', 'RMSE_test']] / 10**6
 
-
+    
     melt = df.melt(
         id_vars=['Model', 'Variable', 'Fold'], 
         value_vars=['R2_test', 'R2_train', 'RMSE_train', 'RMSE_test', 
@@ -206,7 +226,10 @@ def plot_train_results():
     # color for train and test
     color_dict = {'train': '#7570b3', 'test': '#d95f02'}
 
-    melt = melt[(melt.Model != 'MLPRegressor')]
+    melt = melt[melt['Metric_Type'].isin(['R2', 'RMSE'])]
+
+    melt['Metric_Type'] = melt['Metric_Type'].replace({'RMSE': 'RMSE (Mt)'})
+
 
     for v in ['Concentrate_production', 'Tailings_production', 'Ore_processed_mass']:
         
@@ -228,7 +251,7 @@ def plot_train_results():
         p += scale_color_manual(values=color_dict)
 
         if out_remove:
-            save_fig_plotnine(p, f'ml_train_res__out_removed', dpi=800)
+            save_fig_plotnine(p, f'{v}_ml_train_res_out_removed', dpi=800)
         else:
             # Save the plot
             save_fig_plotnine(p, f'{v}_ml_train_res', dpi=800)
@@ -239,15 +262,13 @@ def descriptive_analysis(p = r'data\int\M_ml_train_loop\ml_train_loop_result.csv
     d = pd.read_csv(p)
     desc = d.groupby(['Variable', 'Model']).describe()
     desc = desc.round(4)
-
-    
     pass
 
 
 
 if __name__ == '__main__':
+    train_loop()
     
-    descriptive_analysis()
     
 
 

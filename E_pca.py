@@ -17,7 +17,15 @@ from E_ml_explo import get_data, clean_and_imput, log_vars, num_vars, cat_vars
 
 ################################################Params###############################################
 
-def get_data_per_var(name, out_remove = False):
+
+logs_features = [i for i in log_vars if i is not 'Cum_prod']
+
+
+
+
+
+
+def get_data_per_var(name, out_remove = False, thres_out = None):
 
     d = get_data()
 
@@ -34,18 +42,23 @@ def get_data_per_var(name, out_remove = False):
 
     m = d.merge(geo, on=['Prop_id', 'Target_var'], how='left')
 
+    m.set_index('Prop_id', inplace=True)
+
     m = clean_and_imput(m)
-    m[log_vars] = np.log1p(m[log_vars])
+
+    m[logs_features] = np.log(m[logs_features])
 
     geo_cols = [col for col in m.columns if 'Cluster' in col]
 
     vars = num_vars + cat_vars + geo_cols
 
     if out_remove:
-        p = r'data\int\E_outlier_dbscan\anomalies.csv'
+        assert thres_out is not None, 'Please provide a threshold for outlier removal.'
+        p = r'data\int\R_ml_hype_error\std_errors_hype_model.csv'
         out = pd.read_csv(p)
-        out = out[out.Target_var == name]
-        m = m[~m.Prop_id.isin(out[out.Anomaly == -1].Prop_id)]
+        out = out[out.Variable == name]
+        out_ids = out[np.abs(out.Std_error) > thres_out].Prod_id
+        m = m[~m.index.isin(out_ids)]
 
     return m[vars]
 

@@ -43,6 +43,7 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from plotnine import *
 import joblib
 
+import smogn
 
 # import pca
 from sklearn.decomposition import PCA
@@ -62,6 +63,7 @@ from E_ml_explo import log_vars
 models = { 'ElasticNet': ElasticNet(), 'Lasso': Lasso(), 'LinearRegression': LinearRegression(), 'MLPRegressor': MLPRegressor(), 'Ridge': Ridge(), 'SVR': SVR(),   'RandomForestRegressor': RandomForestRegressor(), 'GradientBoostingRegressor': GradientBoostingRegressor()}
 random_state = 42
 out_remove = False
+synth = True
 
 n_splits = 5
 thres_out = 5
@@ -115,6 +117,33 @@ def get_comb(df):
     comb= df[production_features].astype(str).agg('-'.join, axis=1)
     return comb
 
+def get_synth_samp(data):
+    data['Cum_prod'] = np.log(data['Cum_prod'])
+    data.reset_index(inplace=True, drop=True)
+    
+
+    rg_mtrx = [
+            [data['Cum_prod'].quantile(0.50), 0, 0],   # Below median: No oversampling
+            [data['Cum_prod'].quantile(0.75), 1, 0],  # Moderate relevance in upper quartile
+            [data['Cum_prod'].quantile(0.90), 1, 0],  # High relevance above 90% quantile
+            [data['Cum_prod'].max(), 0, 0]  # Ensure extreme max values are captured
+        ]
+        
+    smog = smogn.smoter(
+            data, 
+            y='Cum_prod', 
+            k=5, 
+            samp_method='balance', 
+            rel_method="manual", 
+            rel_thres=0.9,
+            rel_ctrl_pts_rg = rg_mtrx
+
+        )
+    
+    smog['Cum_prod'] = np.exp(smog['Cum_prod'])
+
+    return smog
+
 
 def r2_calc(y_true, y_pred):
     ss_res = np.sum((y_true - y_pred) ** 2)
@@ -130,6 +159,9 @@ def train_loop():
 
         d = get_data_per_var(name, out_remove=out_remove, thres_out=thres_out)
         
+        if synth:
+            d = get_synth_samp(d)
+
         y = d['Cum_prod']
         X = d.drop('Cum_prod', axis=1)
 
@@ -175,8 +207,8 @@ def train_loop():
             
             count += 1
     
-    if out_remove:
-        d_name = f'ml_train_loop_result_out_removed'
+    if synth:
+        d_name = f'ml_train_loop_result_synth'
     else:
         d_name = f'ml_train_loop_result'
 
@@ -187,10 +219,13 @@ def train_loop():
 def plot_train_results():
     # Melt the DataFrame
 
-    if out_remove:
-        p = r'data\int\M_ml_train_loop\ml_train_loop_result_out_removed.csv'
+    if synth:
+        p = r'data\int\M_ml_train_loop\ml_train_loop_result_synth.csv'
+        color_dict = {'train': '#c51b7d', 'test': '#7fbc41'}
     else:
         p = r'data\int\M_ml_train_loop\ml_train_loop_result.csv'
+        
+        color_dict = {'train': '#7570b3', 'test': '#d95f02'}
 
     df = pd.read_csv(p)
 
@@ -224,7 +259,7 @@ def plot_train_results():
     melt['Data_Split'] = pd.Categorical(melt['Data_Split'], categories=split_order, ordered=True)
 
     # color for train and test
-    color_dict = {'train': '#7570b3', 'test': '#d95f02'}
+    
 
     melt = melt[melt['Metric_Type'].isin(['R2', 'RMSE'])]
 
@@ -250,11 +285,11 @@ def plot_train_results():
         #use color_dict
         p += scale_color_manual(values=color_dict)
 
-        if out_remove:
-            save_fig_plotnine(p, f'{v}_ml_train_res_out_removed', dpi=800)
+        if synth:
+            save_fig_plotnine(p, f'{v}_ml_train_res_out_synth', dpi=800, w=12, h=6)
         else:
             # Save the plot
-            save_fig_plotnine(p, f'{v}_ml_train_res', dpi=800)
+            save_fig_plotnine(p, f'{v}_ml_train_res', dpi=800, w=12, h=6)
 
     pass
 
@@ -267,7 +302,8 @@ def descriptive_analysis(p = r'data\int\M_ml_train_loop\ml_train_loop_result.csv
 
 
 if __name__ == '__main__':
-    train_loop()
+
+    plot_train_results()
     
     
 

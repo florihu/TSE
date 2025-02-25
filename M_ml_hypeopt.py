@@ -41,7 +41,7 @@ from tqdm import tqdm
 from util import df_to_csv_int, save_fig, save_fig_plotnine
 from E_pca import get_data_per_var
 from E_ml_explo import log_vars
-from M_ml_train_loop import get_comb, pre_pipe, y_pipe
+from M_ml_train_loop import get_comb, pre_pipe, y_pipe, r2_calc, get_synth_samp
 
 ###############################################################Purpose#####################################################################################################
 
@@ -103,7 +103,9 @@ param_dist = {
     }
 
 random_state = 42
-models = { 'ElasticNet': ElasticNet(), 'Lasso': Lasso(),  'Ridge': Ridge(), 'SVR': SVR(),  'MLPRegressor': MLPRegressor(), 'RandomForestRegressor': RandomForestRegressor(), 'GradientBoostingRegressor': GradientBoostingRegressor()}
+synth = True
+
+models = { 'ElasticNet': ElasticNet(), 'Lasso': Lasso(),  'Ridge': Ridge(), 'SVR': SVR(), 'RandomForestRegressor': RandomForestRegressor(), 'GradientBoostingRegressor': GradientBoostingRegressor()}
 
 rename_dict = {'Tailings_production': 'CTP', 'Concentrate_production': 'CCP', 'Ore_processed_mass': 'COP'}
 
@@ -118,19 +120,18 @@ def hype_results_plot(p = r'data\int\M_ml_hypeopt\ml_hype_opt_results.csv'):
     # Melt the DataFrame
 
     df = pd.read_csv(p)
+    df.dropna(axis=1, inplace=True)
 
     model_order = [
         'ElasticNet', 'Lasso', 'LinearRegression', 'Ridge',
-        'SVR', 'RandomForestRegressor', 'GradientBoostingRegressor', 'MLPRegressor'
+        'SVR', 'RandomForestRegressor', 'GradientBoostingRegressor'
     ]
 
     # Ensure the 'Model' column is ordered
     df['Model'] = pd.Categorical(df['Model'], categories=model_order, ordered=True)
 
-    df[['RMSE_mean_train', 'RMSE_mean_test', 'RMSE_std_train', 'RMSE_std_test']] = df[['RMSE_mean_train', 'RMSE_mean_test','RMSE_std_train', 'RMSE_std_test']].apply(lambda x: np.abs(x) /10**6)
-
     # melt the df
-    melt = df.melt(id_vars=['Model', 'Variable'], value_vars=['RMSE_mean_train', 'RMSE_mean_test', 'RMSE_std_train', 'RMSE_std_test'], var_name='Metric', value_name='Value')
+    melt = df.melt(id_vars=['Model', 'Variable'], value_vars=['R2_mean_train', 'R2_mean_test', 'R2_std_train', 'R2_std_test'], var_name='Metric', value_name='Value')
 
    
     # Split 'Metric' into 'Metric_Type' and 'Data_Split'
@@ -149,12 +150,12 @@ def hype_results_plot(p = r'data\int\M_ml_hypeopt\ml_hype_opt_results.csv'):
 
     melt_piv['Variable'] = melt_piv['Variable'].replace(rename_dict)
 
-    p = (ggplot(melt_piv, aes(x='Model', y='RMSE_mean', color='Data_split'))
+    p = (ggplot(melt_piv, aes(x='Model', y='R2_mean', color='Data_split'))
             
         + geom_point(position=position_dodge(width=0.3), size=3)  # Shift points
-        + geom_errorbar(aes(ymin='RMSE_mean - RMSE_std', ymax='RMSE_mean + RMSE_std'),
+        + geom_errorbar(aes(ymin='R2_mean - R2_std', ymax='R2_mean + R2_std'),
                                 position=position_dodge(width=0.3), width=0.2)
-        + labs(x='Model', y='RMSE (Mt)') 
+        + labs(x='Model', y='R2') 
         + theme_minimal() 
         + facet_wrap('~ Variable', scales='free_y', ncol=3)
         + theme(axis_text_x=element_text(rotation=45, hjust=1, vjust=1, size=10), 
@@ -163,27 +164,31 @@ def hype_results_plot(p = r'data\int\M_ml_hypeopt\ml_hype_opt_results.csv'):
                 axis_title_y=element_text(size=10),
                 legend_title=element_text(size=10),
                 legend_text=element_text(size=10),
-                figure_size=(18, 10))
+                figure_size=(14, 8))
         + scale_color_manual(values=color_dict)
 
         )
   
     # Save the plot
-    save_fig_plotnine(p, f'hype_opt_results', dpi=800)
+    save_fig_plotnine(p, f'hype_opt_results', dpi=1000, h=8, w=14)
 
     pass
 
 def hype_loop():
     
 
-    res_df = pd.DataFrame(columns=['Model', 'Variable', 'RMSE_mean_train', 'RMSE_mean_test', 'RMSE_std_train', 'RMSE_std_test'])
+    res_df = pd.DataFrame(columns=['Model', 'Variable', 'R2_mean_train', 'R2_mean_test', 'R2_std_train', 'R2_std_test'])
 
     for name in tqdm(['Concentrate_production', 'Tailings_production', 'Ore_processed_mass'], desc='Variables'):
 
         d = get_data_per_var(name)
 
+        if synth:
+            d = get_synth_samp(d)
+
         y = d['Cum_prod']
-        y = y_scaler.fit_transform(y.values.reshape(-1, 1)).flatten()
+
+        y = y_pipe.fit_transform(y.values.reshape(-1, 1)).flatten()
         X = d.drop('Cum_prod', axis=1)
 
         comb = get_comb(d)
@@ -199,11 +204,17 @@ def hype_loop():
             return np.where(x > max_val, np.inf, np.sqrt(x))
 
         def rmse_inv(y_true, y_pred):
-                y_true_orig = safe_exp(y_scaler.inverse_transform(y_true.reshape(-1, 1)).flatten())
-                y_pred_orig = safe_exp(y_scaler.inverse_transform(y_pred.reshape(-1, 1)).flatten())
+                y_true_orig = y_pipe.inverse_transform(y_true.reshape(-1, 1)).flatten()
+                y_pred_orig = y_pipe.inverse_transform(y_pred.reshape(-1, 1)).flatten()
                 return safe_sqrt(np.mean((y_true_orig - y_pred_orig) ** 2))
+        
+        def r2_inv(y_true, y_pred):
+            y_true_orig = y_pipe.inverse_transform(y_true.reshape(-1, 1)).flatten()
+            y_pred_orig = y_pipe.inverse_transform(y_pred.reshape(-1, 1)).flatten()
+            return r2_calc(y_true_orig, y_pred_orig)	
             
-        rmse_scorer = make_scorer(rmse_inv, greater_is_better=False)
+        #rmse_scorer = make_scorer(rmse_inv, greater_is_better=False)
+        r2_scorer = make_scorer(r2_inv, greater_is_better=True)
 
         for model_name, model in tqdm(models.items(), desc='Models'):
             # add random state to the model
@@ -220,7 +231,7 @@ def hype_loop():
                 estimator=model,
                 param_distributions=param_dist_,
                 n_iter=numer_of_samples[model_name],
-                scoring=rmse_scorer,
+                scoring=r2_scorer,
                 n_jobs=-1,
                 cv=strat_kflold.split(X, comb),  # Pass stratified groups here
                 random_state=random_state,
@@ -231,10 +242,10 @@ def hype_loop():
             random_search.fit(X, y)
 
             # get r2 scores for the best estimator
-            rmse_mean_train = random_search.cv_results_['mean_train_score'][random_search.best_index_]
-            rmse_mean_test = random_search.cv_results_['mean_test_score'][random_search.best_index_]
-            rmse_std_train = random_search.cv_results_['std_train_score'][random_search.best_index_]
-            rmse_std_test = random_search.cv_results_['std_test_score'][random_search.best_index_]
+            r2_mean_train = random_search.cv_results_['mean_train_score'][random_search.best_index_]
+            r2_mean_test = random_search.cv_results_['mean_test_score'][random_search.best_index_]
+            r2_std_train = random_search.cv_results_['std_train_score'][random_search.best_index_]
+            r2_std_test = random_search.cv_results_['std_test_score'][random_search.best_index_]
 
 
 
@@ -242,14 +253,17 @@ def hype_loop():
             model_path = f'models/{model_name}_{name}.pkl'
             joblib.dump(random_search.best_estimator_, model_path)
 
-            print('Done with ', model_name, ' for ', name)
+            print('Done with ', model_name, ' for ', name, 'r2 mean test', r2_mean_test)
 
 
-            res_df = pd.concat([res_df, pd.DataFrame([{ 'Model': model_name, 'Variable': name, 'RMSE_mean_train': rmse_mean_train, 'RMSE_mean_test': rmse_mean_test, 'RMSE_std_train': rmse_std_train, 'RMSE_std_test': rmse_std_test}])], ignore_index=True)
-        
-    df_to_csv_int(res_df, 'ml_hype_opt_results')
+            res_df = pd.concat([res_df, pd.DataFrame([{ 'Model': model_name, 'Variable': name, 'R2_mean_train': r2_mean_train, 'R2_mean_test': r2_mean_test, 'R2_std_train': r2_std_train, 'R2_std_test': r2_std_test}])], ignore_index=True)
 
-    print('Results saved to ml_hype_opt_results.csv')
+    if synth:
+        d_name = 'ml_hype_opt_results_synth'
+    else:
+        d_name = 'ml_hype_opt_results'    
+    
+    df_to_csv_int(res_df, d_name)
 
     return res_df
 

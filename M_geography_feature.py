@@ -147,8 +147,36 @@ def get_geom_feat(make_plot = False):
     df_to_csv_int(res, 'geo_sim.csv')
         
 
+def calc_geom_X_pred(p = r'data\int\D_ml_sample\X_pred_set.csv'):
+    
+    d = pd.read_csv(p)
+
+    res = []
+
+    for name in ['Ore_processed_mass', 'Concentrate_production', 'Tailings_production']:
+
+        coords = pd.DataFrame([d.id_data_source.astype(str), d.Longitude, d.Latitude]).T
+
+        coords.set_index('id_data_source', inplace=True)
+
+        cluster_sim = ClusterSimilarity(n_clusters=n_cluster_target[name], gamma=1.0 / (2 * coords.var().min()))
+
+        similarity = cluster_sim.fit_transform(coords)
+
+        similarity = pd.DataFrame(similarity, index=coords.index, columns=cluster_sim.get_feature_names_out())
+
+        similarity['Target_var'] = name
+
+        res.append(similarity)
+
+        
+    res = pd.concat(res, axis=0)
+
+    res.reset_index(inplace=True)
+
+    df_to_csv_int(res, 'geo_sim_X_pred.csv')
 
 ############################################Main#############################################
 
 if __name__ == '__main__':
-    get_geom_feat(make_plot=True)
+    calc_geom_X_pred()

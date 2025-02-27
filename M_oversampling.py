@@ -10,18 +10,19 @@ from M_ml_train_loop import get_comb, pre_pipe, y_pipe, r2_calc
 from E_ml_explo import cat_vars
 from util import df_to_csv_int, save_fig_plotnine
 
-
+import config
 
 ######################################################################Params#######################################################################
-random_state = 43
 
 replace_target = {'Tailings_production': 'CTP', 'Concentrate_production': 'CCP', 'Ore_processed_mass': 'COP'}
 
-def get_rg_max(data):
+def get_rg_mtrx(data, var_name):
 
     rg_mtrx = [
         [data['Cum_prod'].quantile(0.50), 0, 0],   # Below median: No oversampling
-        [data['Cum_prod'].quantile(0.75), 1, 0],  # Moderate relevance in upper quartile
+        [data['Cum_prod'].quantile(0.60), 1, 0],  # Low relevance in lower quartile
+        [data['Cum_prod'].quantile(0.70), 1, 0],  # Moderate relevance in upper quartile
+        [data['Cum_prod'].quantile(0.80), 1, 0],  # High relevance above 80% quantile
         [data['Cum_prod'].quantile(0.90), 1, 0],  # High relevance above 90% quantile
         [data['Cum_prod'].max(), 0, 0]  # Ensure extreme max values are captured
     ]
@@ -42,7 +43,7 @@ def explo_oversampling():
         data.reset_index(inplace=True, drop=True)
 
     
-        rg_mtrx = get_rg_max(data)
+        rg_mtrx = get_rg_mtrx(data, variable)
         
         smog = smogn.smoter(
             data, 
@@ -50,11 +51,11 @@ def explo_oversampling():
             k=5, 
             samp_method='balance', 
             rel_method="manual", 
-            rel_thres=0.9,
-            rel_ctrl_pts_rg = rg_mtrx
+            rel_thres=0.90,
+            rel_ctrl_pts_rg = rg_mtrx,
+            seed = config.RANDOM_STATE
 
         )
-
 
         res.append(pd.DataFrame({'Var':[variable]*len(smog['Cum_prod']),  'Type':['synth']*len(smog['Cum_prod']), 'y': smog['Cum_prod'] }))
         
@@ -75,11 +76,16 @@ def plot_overs_explo(p=r'data\int\M_oversampling\oversampling_results.csv' ):
 
     p = (ggplot(df, aes(x='y', fill='Type')) + geom_density(alpha=0.5) + facet_wrap('Var', scales='free_y', ncol=3) + theme_minimal()+ labs(x='log(Cum_prod)', y='Density'))
 
-    save_fig_plotnine(p, 'oversampling_explo', w=10, h=4, dpi=800)
+    # add for every facet wrap the 90% quantile for the original data
+    p = p + geom_vline(data=df[df['Type']=='original'].groupby('Var')['y'].quantile([0.75, 0.90]).reset_index(), mapping=aes(xintercept='y'), color='black', linetype='dashed')
+    
+
+    save_fig_plotnine(p, 'oversampling_explo_seed', w=10, h=4, dpi=800)
     pass
 
 
 
 if __name__ == '__main__':
+    explo_oversampling()
     plot_overs_explo()
     pass

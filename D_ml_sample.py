@@ -286,8 +286,10 @@ def main():
     merge_eps['Latitude'], merge_eps['Longitude'] = merge_eps.geometry.y, merge_eps.geometry.x
 
 
-    cols_to_drop = ['Unnamed: 0', 'geometry','id_data_source', 'continent', 'iso3', 'COU']
+    
     if get_predicton_set:
+
+        cols_to_drop = ['Unnamed: 0', 'geometry','continent', 'iso3', 'COU']
         # take only instances where Latitude Longitude is not null
         pred_feat = merge_eps[(~merge_eps.Latitude.isna()) & (~merge_eps.Longitude.isna())]
 
@@ -299,7 +301,6 @@ def main():
         # filter only instances that contain at least one target commodity
         pred_feat = pred_feat[pred_feat[target_cols].sum(axis=1) > 0]
 
-
         # filter out zero instances
         pred_feat.dropna(inplace=True)
 
@@ -309,6 +310,7 @@ def main():
         df_to_csv_int(pred_feat, 'X_pred_set')
     
     else:
+        cols_to_drop = ['Unnamed: 0', 'geometry','id_data_source', 'continent', 'iso3', 'COU']
 
         cumsum_final = cumsum.merge(merge_eps, left_on = 'Prop_id', right_on = 'id_data_source', how = 'left')
 

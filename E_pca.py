@@ -5,6 +5,7 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 import numpy as np
 from plotnine import *
 
+import config
 
 from util import save_fig_plotnine
 from E_ml_explo import get_data, clean_and_imput, log_vars, num_vars, cat_vars
@@ -19,11 +20,6 @@ from E_ml_explo import get_data, clean_and_imput, log_vars, num_vars, cat_vars
 
 
 logs_features = [i for i in log_vars if i is not 'Cum_prod']
-
-
-
-
-
 
 def get_data_per_var(name, out_remove = False, thres_out = None):
 
@@ -78,11 +74,11 @@ def pca_explo():
         t.drop(columns = 'Cum_prod', inplace = True)
 
         # Standardize the data
-        scaler = MinMaxScaler()
+        scaler = StandardScaler()
         t_scaled = scaler.fit_transform(t)
 
         # Perform PCA
-        pca = PCA()
+        pca = PCA(random_state=config.RANDOM_STATE)
         pca_results = pca.fit_transform(t_scaled)
 
         # explained variance

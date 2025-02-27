@@ -42,8 +42,10 @@ from sklearn.model_selection import cross_val_score, GridSearchCV, RandomizedSea
 from sklearn.gaussian_process import GaussianProcessRegressor
 from plotnine import *
 import joblib
-
+import config
 import smogn
+from sklearn.pipeline import Pipeline
+from sklearn.compose import TransformedTargetRegressor
 
 # import pca
 from sklearn.decomposition import PCA
@@ -55,13 +57,22 @@ from E_pca import get_data_per_var
 from E_ml_explo import log_vars
 
 
+import config
 
 ##################################################Purpose####################################################
 
 ##################################################Params####################################################
+models = { 
+    'ElasticNet': ElasticNet(),  
+    'Lasso': Lasso(),  
+    'LinearRegression': LinearRegression(),  
+    'MLPRegressor': MLPRegressor(random_state=config.RANDOM_STATE),  
+    'Ridge': Ridge(random_state=config.RANDOM_STATE),  
+    'SVR': SVR(),  
+    'RandomForestRegressor': RandomForestRegressor(random_state=config.RANDOM_STATE),  
+    'GradientBoostingRegressor': GradientBoostingRegressor(random_state=config.RANDOM_STATE)  
+}
 
-models = { 'ElasticNet': ElasticNet(), 'Lasso': Lasso(), 'LinearRegression': LinearRegression(), 'MLPRegressor': MLPRegressor(), 'Ridge': Ridge(), 'SVR': SVR(),   'RandomForestRegressor': RandomForestRegressor(), 'GradientBoostingRegressor': GradientBoostingRegressor()}
-random_state = 42
 out_remove = False
 synth = True
 
@@ -120,24 +131,26 @@ def get_comb(df):
 def get_synth_samp(data):
     data['Cum_prod'] = np.log(data['Cum_prod'])
     data.reset_index(inplace=True, drop=True)
-    
-
+   
     rg_mtrx = [
-            [data['Cum_prod'].quantile(0.50), 0, 0],   # Below median: No oversampling
-            [data['Cum_prod'].quantile(0.75), 1, 0],  # Moderate relevance in upper quartile
-            [data['Cum_prod'].quantile(0.90), 1, 0],  # High relevance above 90% quantile
-            [data['Cum_prod'].max(), 0, 0]  # Ensure extreme max values are captured
-        ]
-        
+        [data['Cum_prod'].quantile(0.50), 0, 0],   # Below median: No oversampling
+        [data['Cum_prod'].quantile(0.60), 1, 0],  # Low relevance in lower quartile
+        [data['Cum_prod'].quantile(0.70), 1, 0],  # Moderate relevance in upper quartile
+        [data['Cum_prod'].quantile(0.80), 1, 0],  # High relevance above 80% quantile
+        [data['Cum_prod'].quantile(0.90), 1, 0],  # High relevance above 90% quantile
+        [data['Cum_prod'].max(), 0, 0]  # Ensure extreme max values are captured
+    ]
+
+
     smog = smogn.smoter(
             data, 
             y='Cum_prod', 
             k=5, 
             samp_method='balance', 
             rel_method="manual", 
-            rel_thres=0.9,
-            rel_ctrl_pts_rg = rg_mtrx
-
+            rel_thres=0.90,
+            rel_ctrl_pts_rg = rg_mtrx,
+            seed = config.RANDOM_STATE
         )
     
     smog['Cum_prod'] = np.exp(smog['Cum_prod'])
@@ -176,22 +189,24 @@ def train_loop():
             for model_name, model in tqdm(models.items()):
 
                 # add model to pipe
-                model = make_pipeline(pre_pipe, model)
-            
+                model_pipe = make_pipeline(pre_pipe, model)
+                model_pipe = Pipeline([('Preprocessing', pre_pipe), (model_name, model)])
+                model_ttr = TransformedTargetRegressor(regressor=model_pipe, transformer=y_pipe)
+
+        
                 X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
                 y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
 
-                y_train = y_pipe.fit_transform(y_train.values.reshape(-1, 1)).flatten()
-                y_test = y_pipe.transform(y_test.values.reshape(-1, 1)).flatten()
+    
+                model_ttr.fit(X_train, y_train)
 
-                model.fit(X_train, y_train)
-                y_train_pred = model.predict(X_train)
-                y_test_pred = model.predict(X_test)
+                y_train_pred = model_ttr.predict(X_train)
+                y_test_pred = model_ttr.predict(X_test)
 
-                y_train_pred = y_pipe.inverse_transform(y_train_pred.reshape(-1, 1)).flatten()
-                y_test_pred = y_pipe.inverse_transform(y_test_pred.reshape(-1, 1)).flatten()
-                y_train = y_pipe.inverse_transform(y_train.reshape(-1, 1)).flatten()
-                y_test = y_pipe.inverse_transform(y_test.reshape(-1, 1)).flatten()
+                # y_train_pred = y_pipe.inverse_transform(y_train_pred.reshape(-1, 1)).flatten()
+                # y_test_pred = y_pipe.inverse_transform(y_test_pred.reshape(-1, 1)).flatten()
+                # y_train = y_pipe.inverse_transform(y_train.reshape(-1, 1)).flatten()
+                # y_test = y_pipe.inverse_transform(y_test.reshape(-1, 1)).flatten()
                 
                 r2_train = r2_calc(y_train, y_train_pred)
                 r2_test = r2_calc(y_test, y_test_pred)
@@ -241,10 +256,10 @@ def plot_train_results():
     df[['RMSE_train', 'RMSE_test']] = df[['RMSE_train', 'RMSE_test']] / 10**6
 
     # filter out mlp regressor for tailings production
-    mask = (df['Model'] == 'MLPRegressor') & (df['Variable'] == 'Tailings_production')
-    df = df[~mask]
+    #mask = (df['Model'] == 'MLPRegressor') & (df['Variable'] == 'Tailings_production')
+    #df = df[~mask]
 
-    df = df[df['R2_test']>-3]
+    df = df[df['R2_test']>-.5]
     
     melt = df.melt(
         id_vars=['Model', 'Variable', 'Fold'], 
@@ -314,7 +329,7 @@ def descriptive_analysis():
 
 
 if __name__ == '__main__':
-    descriptive_analysis()
+    train_loop()
     
     
 

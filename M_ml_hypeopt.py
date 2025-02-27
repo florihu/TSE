@@ -26,6 +26,8 @@ from sklearn.neural_network import MLPRegressor
 from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import cross_val_score, GridSearchCV, RandomizedSearchCV, StratifiedKFold
 from sklearn.gaussian_process import GaussianProcessRegressor
+
+from sklearn.compose import TransformedTargetRegressor
 from plotnine import *
 import joblib
 
@@ -42,7 +44,7 @@ from util import df_to_csv_int, save_fig, save_fig_plotnine
 from E_pca import get_data_per_var
 from E_ml_explo import log_vars
 from M_ml_train_loop import get_comb, pre_pipe, y_pipe, r2_calc, get_synth_samp
-
+import config
 ###############################################################Purpose#####################################################################################################
 
 
@@ -67,10 +69,10 @@ param_dist = {
         },
         
         'MLPRegressor': {
-            'hidden_layer_sizes': [(32,), (64,), (32, 32), (64, 64)],  # Keeping it shallow but diverse
+            'hidden_layer_sizes': [(32,), (64,), (32, 32), (64, 64), (128, 128)],  # Keeping it shallow but diverse
             'activation': ['relu', 'tanh'],  # 'identity' and 'logistic' are less common for regression
-            'solver': ['adam', 'lbfgs'],  # 'sgd' often struggles to converge without tuning momentum
-            'alpha': [0.0001, 0.001, 0.01],  # Reduce range to prevent excessive regularization
+            'solver': ['adam'],  # 'sgd' often struggles to converge without tuning momentum
+            'alpha': np.logspace(-5, -1, 6).tolist(),  # Reduce range to prevent excessive regularization
             'learning_rate': ['constant', 'adaptive'],  # 'invscaling' is rarely beneficial in practice
             'max_iter': [500, 1000, 1500]  # 2000 is excessive for shallow models
         },
@@ -79,41 +81,38 @@ param_dist = {
             'solver': ['auto', 'svd', 'cholesky', 'lsqr', 'saga']
         },
         'SVR': {
-            'C': [0.1, 1, 10, 100, 1000],
+            'C': np.logspace(-2, 3, 10).tolist(),
             'kernel': ['linear', 'poly', 'rbf', 'sigmoid'],
             'degree': [2, 3, 4, 5],
-            'epsilon': [0.001, 0.01, 0.1, 0.5, 1.0],
+            'epsilon': np.logspace(-3, 0, 10).tolist(),
             'gamma': ['scale', 'auto']
         },
         'RandomForestRegressor': {
-            'n_estimators': [10, 50, 100, 200, 300, 400, 500],
+            'n_estimators': np.arange(50, 600, 50).tolist(),
             'max_depth': [5, 10, 15, 20, 25, 30, 35, 40, 45, 50],
             'min_samples_split': [2, 5, 10, 15, 20],
             'min_samples_leaf': [1, 2, 4, 8, 16, 32, 64],
-            'max_features': np.arange(1,80).tolist()
+            'max_features': np.arange(1,80,5).tolist()
         },
         'GradientBoostingRegressor': {
-            'n_estimators': [10, 50, 100, 200, 300, 400, 500],
-            'learning_rate': [0.001, 0.01, 0.1, 0.2, 0.3],
+            'n_estimators': np.arange(50, 600, 50).tolist(),
+            'learning_rate': np.logspace(-3, 0, 10).tolist(),
             'max_depth': [3, 4, 5, 6, 7, 8, 9, 10],
-            'min_samples_split': [2, 5, 10, 15, 20],
+            'min_samples_split': [2, 4, 8, 16, 32],
             'min_samples_leaf': [1, 2, 4, 8, 16, 32, 64],
-            'max_features': np.arange(1,80).tolist()
+            'max_features': np.arange(1,80,5).tolist()
         }
     }
 
-random_state = 42
+
 synth = True
 
-models = { 'ElasticNet': ElasticNet(), 'Lasso': Lasso(),  'Ridge': Ridge(), 'SVR': SVR(), 'RandomForestRegressor': RandomForestRegressor(), 'GradientBoostingRegressor': GradientBoostingRegressor()}
+models = { 'MLPRegressor': MLPRegressor(), 'SVR': SVR(), 'RandomForestRegressor': RandomForestRegressor(), 'GradientBoostingRegressor': GradientBoostingRegressor()}
 
 rename_dict = {'Tailings_production': 'CTP', 'Concentrate_production': 'CCP', 'Ore_processed_mass': 'COP'}
 
-y_scaler = StandardScaler()
 
 ###############################################################Main#####################################################################################################
-
-
 
 
 def hype_results_plot():
@@ -154,7 +153,7 @@ def hype_results_plot():
     melt_piv = melt.pivot_table(index=['Model', 'Variable', 'Data_split'], columns=['Metric'], values='Value').reset_index()
 
         
-        # make a scatter plot with model on x
+    # make a scatter plot with model on x
 
     melt_piv['Variable'] = melt_piv['Variable'].replace(rename_dict)
 
@@ -185,7 +184,7 @@ def hype_results_plot():
 def hype_loop():
     
 
-    res_df = pd.DataFrame(columns=['Model', 'Variable', 'R2_mean_train', 'R2_mean_test', 'R2_std_train', 'R2_std_test'])
+    res_df = pd.DataFrame(columns=['Model', 'Variable', 'RMSE_mean_train', 'RMSE_mean_test', 'RMSE_std_train', 'RMSE_std_test'])
 
     for name in tqdm(['Concentrate_production', 'Tailings_production', 'Ore_processed_mass'], desc='Variables'):
 
@@ -195,54 +194,31 @@ def hype_loop():
             d = get_synth_samp(d)
 
         y = d['Cum_prod']
-
-        y = y_pipe.fit_transform(y.values.reshape(-1, 1)).flatten()
         X = d.drop('Cum_prod', axis=1)
 
         comb = get_comb(d)
         
-        strat_kflold = StratifiedKFold(n_splits=5, shuffle=True, random_state=random_state)
-
-        def safe_exp(x, max_val=1e18):
-            x = np.asarray(x)  # Ensure input is an array
-            return np.where(x > np.log(max_val), np.inf, np.exp(x))
-
-        def safe_sqrt(x, max_val=1e18):
-            x = np.asarray(x)  # Ensure input is an array
-            return np.where(x > max_val, np.inf, np.sqrt(x))
-
-        def rmse_inv(y_true, y_pred):
-                y_true_orig = y_pipe.inverse_transform(y_true.reshape(-1, 1)).flatten()
-                y_pred_orig = y_pipe.inverse_transform(y_pred.reshape(-1, 1)).flatten()
-                return safe_sqrt(np.mean((y_true_orig - y_pred_orig) ** 2))
-        
-        def r2_inv(y_true, y_pred):
-            y_true_orig = y_pipe.inverse_transform(y_true.reshape(-1, 1)).flatten()
-            y_pred_orig = y_pipe.inverse_transform(y_pred.reshape(-1, 1)).flatten()
-            return r2_calc(y_true_orig, y_pred_orig)	
-            
-        #rmse_scorer = make_scorer(rmse_inv, greater_is_better=False)
-        r2_scorer = make_scorer(r2_inv, greater_is_better=True)
+        strat_kflold = StratifiedKFold(n_splits=5, shuffle=True, random_state=config.RANDOM_STATE)
 
         for model_name, model in tqdm(models.items(), desc='Models'):
             # add random state to the model
-            model.random_state = random_state
+            model.random_state = config.RANDOM_STATE
 
-            model = Pipeline([('Preprocessing', pre_pipe), (model_name, model)])
+            model_pipe = Pipeline([('Preprocessing', pre_pipe), (model_name, model)])
+            model_ttr = TransformedTargetRegressor(regressor=model_pipe, transformer=y_pipe)
 
             #add model_name to params keys
             param_dist_ = {f'{model_name}__{k}': v for k, v in param_dist[model_name].items()}
 
-
             # Instantiate RandomizedSearchCV
             random_search = RandomizedSearchCV(
-                estimator=model,
+                estimator=model_ttr,
                 param_distributions=param_dist_,
                 n_iter=numer_of_samples[model_name],
-                scoring=r2_scorer,
+                scoring='neg_mean_squared_error',
                 n_jobs=-1,
                 cv=strat_kflold.split(X, comb),  # Pass stratified groups here
-                random_state=random_state,
+                random_state=config.RANDOM_STATE,
                 return_train_score=True
             )
 
@@ -250,21 +226,22 @@ def hype_loop():
             random_search.fit(X, y)
 
             # get r2 scores for the best estimator
-            r2_mean_train = random_search.cv_results_['mean_train_score'][random_search.best_index_]
-            r2_mean_test = random_search.cv_results_['mean_test_score'][random_search.best_index_]
-            r2_std_train = random_search.cv_results_['std_train_score'][random_search.best_index_]
-            r2_std_test = random_search.cv_results_['std_test_score'][random_search.best_index_]
+            rmse_mean_train = random_search.cv_results_['mean_train_score'][random_search.best_index_] * -1
+            rmse_mean_test = random_search.cv_results_['mean_test_score'][random_search.best_index_] * -1
+            rmse_std_train = random_search.cv_results_['std_train_score'][random_search.best_index_]
+            rmse_std_test = random_search.cv_results_['std_test_score'][random_search.best_index_]
 
-
+            if synth:
+                model_name = f'{model_name}_synth'
 
             # save best estimater to path
             model_path = f'models/{model_name}_{name}.pkl'
             joblib.dump(random_search.best_estimator_, model_path)
 
-            print('Done with ', model_name, ' for ', name, 'r2 mean test', r2_mean_test)
+            print('Done with ', model_name, ' for ', name, 'rmse mean test', rmse_mean_test)
 
 
-            res_df = pd.concat([res_df, pd.DataFrame([{ 'Model': model_name, 'Variable': name, 'R2_mean_train': r2_mean_train, 'R2_mean_test': r2_mean_test, 'R2_std_train': r2_std_train, 'R2_std_test': r2_std_test}])], ignore_index=True)
+            res_df = pd.concat([res_df, pd.DataFrame([{ 'Model': model_name, 'Variable': name, 'RMSE_mean_train': rmse_mean_train, 'RMSE_mean_test': rmse_mean_test, 'RMSE_std_train': rmse_std_train, 'RMSE_std_test': rmse_std_test}])], ignore_index=True)
 
     if synth:
         d_name = 'ml_hype_opt_results_synth'
@@ -278,3 +255,26 @@ def hype_loop():
 
 if __name__ =='__main__':
     hype_results_plot()
+
+
+
+    # def safe_exp(x, max_val=1e18):
+        #     x = np.asarray(x)  # Ensure input is an array
+        #     return np.where(x > np.log(max_val), np.inf, np.exp(x))
+
+        # def safe_sqrt(x, max_val=1e18):
+        #     x = np.asarray(x)  # Ensure input is an array
+        #     return np.where(x > max_val, np.inf, np.sqrt(x))
+
+        # def rmse_inv(y_true, y_pred):
+        #         y_true_orig = y_pipe.inverse_transform(y_true.reshape(-1, 1)).flatten()
+        #         y_pred_orig = y_pipe.inverse_transform(y_pred.reshape(-1, 1)).flatten()
+        #         return safe_sqrt(np.mean((y_true_orig - y_pred_orig) ** 2))
+        
+        # def r2_inv(y_true, y_pred):
+        #     y_true_orig = y_pipe.inverse_transform(y_true.reshape(-1, 1)).flatten()
+        #     y_pred_orig = y_pipe.inverse_transform(y_pred.reshape(-1, 1)).flatten()
+        #     return r2_calc(y_true_orig, y_pred_orig)	
+            
+        # #rmse_scorer = make_scorer(rmse_inv, greater_is_better=False)
+        # r2_scorer = make_scorer(r2_inv, greater_is_better=True)

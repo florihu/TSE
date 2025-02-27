@@ -240,6 +240,11 @@ def plot_train_results():
 
     df[['RMSE_train', 'RMSE_test']] = df[['RMSE_train', 'RMSE_test']] / 10**6
 
+    # filter out mlp regressor for tailings production
+    mask = (df['Model'] == 'MLPRegressor') & (df['Variable'] == 'Tailings_production')
+    df = df[~mask]
+
+    df = df[df['R2_test']>-3]
     
     melt = df.melt(
         id_vars=['Model', 'Variable', 'Fold'], 
@@ -260,7 +265,6 @@ def plot_train_results():
 
     # color for train and test
     
-
     melt = melt[melt['Metric_Type'].isin(['R2', 'RMSE'])]
 
     melt['Metric_Type'] = melt['Metric_Type'].replace({'RMSE': 'RMSE (Mt)'})
@@ -293,17 +297,24 @@ def plot_train_results():
 
     pass
 
-def descriptive_analysis(p = r'data\int\M_ml_train_loop\ml_train_loop_result.csv'):
-    d = pd.read_csv(p)
-    desc = d.groupby(['Variable', 'Model']).describe()
-    desc = desc.round(4)
+def descriptive_analysis():
+    p_post = r'data\int\M_ml_train_loop\ml_train_loop_result_synth.csv'
+    d_post = pd.read_csv(p_post)
+    d_post['Type']= 'Synthetic'
+
+    p_pre = r'data\int\M_ml_train_loop\ml_train_loop_result.csv'
+    d_pre = pd.read_csv(p_pre)
+    d_pre['Type']= 'Original'
+
+    d = pd.concat([d_post, d_pre], ignore_index=True, axis=0)
+
+    desc = d.groupby(['Variable', 'Model', 'Type'])[['R2_train', 'R2_test',  'RMSE_train', 'RMSE_test']].describe()
+
     pass
 
 
-
 if __name__ == '__main__':
-
-    plot_train_results()
+    descriptive_analysis()
     
     
 

@@ -50,6 +50,9 @@ all_coms = False
 
 sig = .05
 
+get_predicton_set = True
+
+target_commodities = ['Copper', 'Zinc', 'Nickel']
 
 def get_cumsum():
     # Identify cumulative model data
@@ -283,18 +286,41 @@ def main():
     merge_eps['Latitude'], merge_eps['Longitude'] = merge_eps.geometry.y, merge_eps.geometry.x
 
 
-    cumsum_final = cumsum.merge(merge_eps, left_on = 'Prop_id', right_on = 'id_data_source', how = 'left')
-
     cols_to_drop = ['Unnamed: 0', 'geometry','id_data_source', 'continent', 'iso3', 'COU']
+    if get_predicton_set:
+        # take only instances where Latitude Longitude is not null
+        pred_feat = merge_eps[(~merge_eps.Latitude.isna()) & (~merge_eps.Longitude.isna())]
 
-    cumsum_final.drop(columns= cols_to_drop, inplace = True)
+        pred_feat = pred_feat.drop(columns=cols_to_drop)
 
-    cumsum_final = cumsum_final[~cumsum_final.Latitude.isna()]
+        # filter out all columns that contain target commodities
+        target_cols = [col for col in pred_feat.columns if any([com in col for com in target_commodities])]
 
-    # Filter out zeros only columns
-    cumsum_final = cumsum_final[~cumsum_final.isnull()]
+        # filter only instances that contain at least one target commodity
+        pred_feat = pred_feat[pred_feat[target_cols].sum(axis=1) > 0]
 
-    df_to_csv_int(cumsum_final, 'ml_sample')
+
+        # filter out zero instances
+        pred_feat.dropna(inplace=True)
+
+        assert pred_feat.isna().sum().sum() == 0, 'There are still missing values in the prediction features'
+
+
+        df_to_csv_int(pred_feat, 'X_pred_set')
+    
+    else:
+
+        cumsum_final = cumsum.merge(merge_eps, left_on = 'Prop_id', right_on = 'id_data_source', how = 'left')
+
+
+        cumsum_final.drop(columns= cols_to_drop, inplace = True)
+
+        cumsum_final = cumsum_final[~cumsum_final.Latitude.isna()]
+
+        # Filter out zeros only columns
+        cumsum_final = cumsum_final[~cumsum_final.isnull()]
+
+        df_to_csv_int(cumsum_final, 'ml_sample')
 
 
 if __name__ == '__main__':

@@ -116,8 +116,18 @@ y_scaler = StandardScaler()
 
 
 
-def hype_results_plot(p = r'data\int\M_ml_hypeopt\ml_hype_opt_results.csv'):
+def hype_results_plot():
     # Melt the DataFrame
+
+    if synth:
+        p = r'data\int\M_ml_hypeopt\ml_hype_opt_results_synth.csv'
+        d_name = 'ml_hype_opt_results_synth'
+        color_dict = {'train': '#c51b7d', 'test': '#7fbc41'}
+    else:
+        p = r'data\int\M_ml_hypeopt\ml_hype_opt_results.csv'
+        d_name = 'ml_hype_opt_results'
+        
+        color_dict = {'train': '#7570b3', 'test': '#d95f02'}
 
     df = pd.read_csv(p)
     df.dropna(axis=1, inplace=True)
@@ -143,8 +153,6 @@ def hype_results_plot(p = r'data\int\M_ml_hypeopt\ml_hype_opt_results.csv'):
 
     melt_piv = melt.pivot_table(index=['Model', 'Variable', 'Data_split'], columns=['Metric'], values='Value').reset_index()
 
-    # color for train and test
-    color_dict = {'train': '#7570b3', 'test': '#d95f02'}
         
         # make a scatter plot with model on x
 
@@ -164,13 +172,13 @@ def hype_results_plot(p = r'data\int\M_ml_hypeopt\ml_hype_opt_results.csv'):
                 axis_title_y=element_text(size=10),
                 legend_title=element_text(size=10),
                 legend_text=element_text(size=10),
-                figure_size=(14, 8))
+                figure_size=(16, 8))
         + scale_color_manual(values=color_dict)
 
         )
   
     # Save the plot
-    save_fig_plotnine(p, f'hype_opt_results', dpi=1000, h=8, w=14)
+    save_fig_plotnine(p, d_name, dpi=1000, h=8, w=14)
 
     pass
 

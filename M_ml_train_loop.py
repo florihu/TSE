@@ -324,12 +324,13 @@ def descriptive_analysis():
     d = pd.concat([d_post, d_pre], ignore_index=True, axis=0)
 
     desc = d.groupby(['Variable', 'Model', 'Type'])[['R2_train', 'R2_test',  'RMSE_train', 'RMSE_test']].describe()
+    desc.reset_index(inplace=True)
 
     pass
 
 
 if __name__ == '__main__':
-    train_loop()
+    descriptive_analysis()
     
     
 

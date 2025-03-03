@@ -10,6 +10,7 @@ from sklearn.metrics.pairwise import rbf_kernel
 from sklearn.base import BaseEstimator, TransformerMixin
 
 from matplotlib import pyplot as plt
+import matplotlib.ticker as ticker
 
 from E_ml_explo import immpute_vars, unit_rename
 from sklearn.compose import ColumnTransformer
@@ -107,9 +108,10 @@ param_dist = {
 
 synth = True
 
-models = { 'MLPRegressor': MLPRegressor(), 'SVR': SVR(), 'RandomForestRegressor': RandomForestRegressor(), 'GradientBoostingRegressor': GradientBoostingRegressor()}
-
+#models = { 'MLPRegressor': MLPRegressor(), 'SVR': SVR(), 'RandomForestRegressor': RandomForestRegressor(), 'GradientBoostingRegressor': GradientBoostingRegressor()}
+models = {'GradientBoostingRegressor': GradientBoostingRegressor()}
 rename_dict = {'Tailings_production': 'CTP', 'Concentrate_production': 'CCP', 'Ore_processed_mass': 'COP'}
+n_splits = 5
 
 
 ###############################################################Main#####################################################################################################
@@ -186,7 +188,7 @@ def hype_loop():
 
     res_df = pd.DataFrame(columns=['Model', 'Variable', 'RMSE_mean_train', 'RMSE_mean_test', 'RMSE_std_train', 'RMSE_std_test'])
 
-    for name in tqdm(['Concentrate_production', 'Tailings_production', 'Ore_processed_mass'], desc='Variables'):
+    for name in tqdm(['Ore_processed_mass'], desc='Variables'):
 
         d = get_data_per_var(name)
 
@@ -208,14 +210,14 @@ def hype_loop():
             model_ttr = TransformedTargetRegressor(regressor=model_pipe, transformer=y_pipe)
 
             #add model_name to params keys
-            param_dist_ = {f'{model_name}__{k}': v for k, v in param_dist[model_name].items()}
+            param_dist_ = {f'regressor__{model_name}__{k}': v for k, v in param_dist[model_name].items()}
 
             # Instantiate RandomizedSearchCV
             random_search = RandomizedSearchCV(
                 estimator=model_ttr,
                 param_distributions=param_dist_,
                 n_iter=numer_of_samples[model_name],
-                scoring='neg_mean_squared_error',
+                scoring='neg_root_mean_squared_error',
                 n_jobs=-1,
                 cv=strat_kflold.split(X, comb),  # Pass stratified groups here
                 random_state=config.RANDOM_STATE,
@@ -248,33 +250,151 @@ def hype_loop():
     else:
         d_name = 'ml_hype_opt_results'    
     
-    df_to_csv_int(res_df, d_name)
+    #df_to_csv_int(res_df, d_name)
 
     return res_df
 
+def model_eval():
+
+    models_path_per_var = {
+        'Concentrate_production': ['models/MLPRegressor_synth_Concentrate_production.pkl', 'models/SVR_synth_Concentrate_production.pkl', 'models/RandomForestRegressor_synth_Concentrate_production.pkl', 'models/GradientBoostingRegressor_synth_Concentrate_production.pkl'],
+        'Tailings_production': ['models/MLPRegressor_synth_Tailings_production.pkl', 'models/SVR_synth_Tailings_production.pkl', 'models/RandomForestRegressor_synth_Tailings_production.pkl', 'models/GradientBoostingRegressor_synth_Tailings_production.pkl'],
+        'Ore_processed_mass': ['models/MLPRegressor_synth_Ore_processed_mass.pkl', 'models/SVR_synth_Ore_processed_mass.pkl', 'models/RandomForestRegressor_synth_Ore_processed_mass.pkl', 'models/GradientBoostingRegressor_synth_Ore_processed_mass.pkl']
+    }
+
+    res_df = pd.DataFrame(columns=['Model', 'Variable', 'Fold',  'R2_train', 'R2_test', 'RMSE_train', 'RMSE_test', 'MAE_train', 'MAE_test', 'NRMSE_train', 'NRMSE_test'])
+
+
+    for name in ['Ore_processed_mass', 'Concentrate_production', 'Tailings_production']:
+
+        d = get_data_per_var(name, out_remove=False, thres_out=None)
+        
+        if synth:
+            d = get_synth_samp(d)
+
+        y = d['Cum_prod']
+        X = d.drop('Cum_prod', axis=1)
+
+        idx = np.arange(X.shape[0])
+
+        comb = get_comb(d)
+
+        for train_idx, test_idx  in  StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=config.RANDOM_STATE).split(idx, comb):
+            
+            count = 0
+            
+            for model_path in tqdm(models_path_per_var[name], desc='Models'):
+                model_ttr = joblib.load(model_path)
+
+                model_ttr.regressor.random_state = config.RANDOM_STATE
+
+                model_name = model_path.split('_')[0].split('/')[-1]
+
+            
+                X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+                y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+
+    
+                model_ttr.fit(X_train, y_train)
+
+                y_train_pred = model_ttr.predict(X_train)
+                y_test_pred = model_ttr.predict(X_test)
+                
+                r2_train = r2_calc(y_train, y_train_pred)
+                r2_test = r2_calc(y_test, y_test_pred)
+
+                rmse_train = np.sqrt(np.mean((y_train - y_train_pred) ** 2))
+                rmse_test = np.sqrt(np.mean((y_test - y_test_pred) ** 2))
+                mae_train = np.mean(np.abs(y_train - y_train_pred))
+                mae_test = np.mean(np.abs(y_test - y_test_pred))
+                nrmse_train = rmse_train / np.mean(y_train)
+                nrmse_test = rmse_test / np.mean(y_test)
+
+                res_df = pd.concat([res_df, pd.DataFrame([{ 'Model': model_name, 'Variable': name, 'Fold':count,'R2_train': r2_train, 'R2_test': r2_test, 'RMSE_train': rmse_train, 'RMSE_test': rmse_test, 'MAE_train': mae_train, 'MAE_test': mae_test, 'NRMSE_train': nrmse_train, 'NRMSE_test': nrmse_test}])], ignore_index=True)
+            
+            count += 1
+    
+    if synth:
+        d_name = f'ml_hype_loop_eval_synth'
+    else:
+        d_name = f'ml_hype_loop_eval'
+
+    df_to_csv_int(res_df, d_name)
+
+    pass
+
+def plot_model_eval():
+    # File path
+    p_file = r'data\int\M_ml_hypeopt\ml_hype_loop_eval_synth.csv'
+
+    color_dict = {'train': '#b2df8a', 'test': '#33a02c'}
+
+    # Read the data
+    df = pd.read_csv(p_file)
+
+    # Define the model order
+    model_order = [
+        'MLPRegressor', 'SVR', 
+        'RandomForestRegressor', 'GradientBoostingRegressor'
+    ]
+    df['Model'] = pd.Categorical(df['Model'], categories=model_order, ordered=True)
+
+    # Convert RMSE to Mt (millions)
+    df[['RMSE_train', 'RMSE_test']] /= 10**6
+
+    # filter out r2_tests smaller -.5
+    #df = df[df['R2_test'] > -0.5]
+
+    # Melt the DataFrame
+    melt = df.melt(
+        id_vars=['Model', 'Variable', 'Fold'], 
+        value_vars=['R2_test', 'R2_train', 'RMSE_train', 'RMSE_test'],
+        var_name='Metric', 
+        value_name='Value'
+    )
+
+    # Split metric into Metric_Type and Data_Split
+    melt[['Metric_Type', 'Data_Split']] = melt['Metric'].str.extract(r'(\w+)_(train|test)')
+
+    # Ensure consistent ordering
+    melt['Data_Split'] = pd.Categorical(melt['Data_Split'], categories=['train', 'test'], ordered=True)
+
+    # Filter for R² and RMSE only
+    melt = melt[melt['Metric_Type'].isin(['R2', 'RMSE'])]
+    melt['Metric_Type'] = melt['Metric_Type'].replace({'RMSE': 'RMSE (Mt)'})
+
+    melt['Variable'] = melt['Variable'].replace({'Ore_processed_mass': 'COP', 'Concentrate_production': 'CCP', 'Tailings_production': 'CTP'})
+
+    # Initialize a FacetGrid
+    g = sns.FacetGrid(
+        melt, col='Metric_Type', row='Variable', hue='Data_Split',
+        sharey=False, height=4, aspect=1.5, sharex=True,  
+    )
+
+    # Plot boxplots in each facet
+    g.map_dataframe(sns.boxplot, x='Model', y='Value', hue='Data_Split', order=model_order, dodge=True, palette=color_dict)
+
+    # Adjust legends
+    g.add_legend(title="Data Split", fontsize=10, title_fontsize=10, loc = [0.1, 0.2])
+
+
+    for ax in g.axes.flat:
+        ax.xaxis.set_major_locator(ticker.FixedLocator(range(len(model_order))))
+        ax.set_xticklabels(model_order, rotation=45, ha="right")
+    
+    # Add axis labels
+    g.set_axis_labels("Model", "Value")
+
+    # Adjust layout
+    plt.tight_layout()
+
+    # Save figure
+    save_fig('ml_hype_loop_eval_synth', dpi=800)
+
+    plt.show()
+
+
+
 
 if __name__ =='__main__':
-    hype_results_plot()
-
-
-
-    # def safe_exp(x, max_val=1e18):
-        #     x = np.asarray(x)  # Ensure input is an array
-        #     return np.where(x > np.log(max_val), np.inf, np.exp(x))
-
-        # def safe_sqrt(x, max_val=1e18):
-        #     x = np.asarray(x)  # Ensure input is an array
-        #     return np.where(x > max_val, np.inf, np.sqrt(x))
-
-        # def rmse_inv(y_true, y_pred):
-        #         y_true_orig = y_pipe.inverse_transform(y_true.reshape(-1, 1)).flatten()
-        #         y_pred_orig = y_pipe.inverse_transform(y_pred.reshape(-1, 1)).flatten()
-        #         return safe_sqrt(np.mean((y_true_orig - y_pred_orig) ** 2))
-        
-        # def r2_inv(y_true, y_pred):
-        #     y_true_orig = y_pipe.inverse_transform(y_true.reshape(-1, 1)).flatten()
-        #     y_pred_orig = y_pipe.inverse_transform(y_pred.reshape(-1, 1)).flatten()
-        #     return r2_calc(y_true_orig, y_pred_orig)	
-            
-        # #rmse_scorer = make_scorer(rmse_inv, greater_is_better=False)
-        # r2_scorer = make_scorer(r2_inv, greater_is_better=True)
+    plot_model_eval()

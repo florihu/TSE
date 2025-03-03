@@ -86,6 +86,6 @@ def plot_overs_explo(p=r'data\int\M_oversampling\oversampling_results.csv' ):
 
 
 if __name__ == '__main__':
-    explo_oversampling()
+
     plot_overs_explo()
     pass

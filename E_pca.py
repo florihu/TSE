@@ -19,7 +19,7 @@ from E_ml_explo import get_data, clean_and_imput, log_vars, num_vars, cat_vars
 ################################################Params###############################################
 
 
-logs_features = [i for i in log_vars if i is not 'Cum_prod']
+logs_features = [i for i in log_vars if i != 'Cum_prod']
 
 def get_data_per_var(name, out_remove = False, thres_out = None):
 

@@ -17,11 +17,18 @@ from plotnine import *
 from collections import defaultdict
 from pyvis.network import Network
 
-from util import save_fig, save_fig_plotnine, data_to_csv_int
+from util import save_fig, save_fig_plotnine, df_to_csv_int
 from E_ml_explo import plot_network
 
 
+##########################################################Params############################################################
 
+
+pred_set = r'data\int\D_ml_sample\X_pred_set.csv'
+
+
+
+##########################################################Functions############################################################
 def generate_network(df):
     '''
     
@@ -71,6 +78,29 @@ def generate_network(df):
 
     return G
 
+
+def alloc_com():
+
+    df = pd.read_csv(pred_set)
+
+    prim_based_alloc = prim_com_based_weight(df)
+
+    # generate the network
+    G = generate_network(df)
+
+    # calculate weighted degree per commodity
+    df_network_stats = calculate_weighted_degree_per_commodity(G)
+
+    # bring everything together
+    degree = relative_weighted_degree_per_mine(df, df_network_stats)
+
+    #merge degree and prim
+
+    merge = degree.merge(prim_based_alloc[['id_data_source', 'Commodity', 'Prim_weight']], on = ['id_data_source', 'Commodity'], how = 'left')
+
+    df_to_csv_int(merge, 'alloc_com.csv')
+
+
 def calculate_weighted_degree_per_commodity(G):
     '''
     This function calculates the weighted degree per commodity. The function returns a dictionary with the commodity as key and the weighted degree as value.
@@ -96,9 +126,6 @@ def calculate_weighted_degree_per_commodity(G):
 
     # Ignores self loops
     df['Clustering_coeff'] = pd.Series(clustering_coeff)
-
-    # Save the DataFrame to a csv file
-    data_to_csv_int(df, 'network_stats_per_commodity')
 
     df.reset_index(inplace = True)
     df.rename(columns = {'index': 'Commodity'}, inplace = True)
@@ -279,7 +306,7 @@ def relative_weighted_degree_per_mine(df, df_network_stats):
 
     df_mine = df_mine[['id_data_source', 'Commodity', 'Rel_weight_degree']]
 
-    data_to_csv_int(df_mine, 'rel_weighted_degree_per_mine')
+    df_mine.rename(columns = { 'Rel_weight_degree': 'Occ_weight'}, inplace = True)
 
 
     return df_mine
@@ -302,13 +329,11 @@ def prim_com_based_weight(df):
     df_mine['Prim_count'] = df_mine.groupby('id_data_source')['Commodity'].transform('count')
     df_mine['Prim_weight'] = 1 / df_mine['Prim_count']
 
-    data_to_csv_int(df_mine, 'prim_com_based_weight')
 
     return df_mine
 
 
-
-def boxplot_relative_weighted_degree_per_mine(file_p = r'data\int\M_alloc\rel_weighted_degree_per_mine.csv'):
+def boxplot_occ_weight(file_p = r'data\int\M_alloc\alloc_com.csv.csv'):
     '''
     This function plots a boxplot of the relative weighted degree per mine.
     '''
@@ -319,16 +344,15 @@ def boxplot_relative_weighted_degree_per_mine(file_p = r'data\int\M_alloc\rel_we
     
     df_rel_w = df_rel_w[df_rel_w['Commodity'].isin(important_coms)]
 
-    p = (ggplot(df_rel_w, aes(x='Commodity', y='Rel_weight_degree', color = 'Commodity')) + geom_boxplot() + theme_minimal())
+    f, ax = plt.subplots(figsize=(12, 6))
 
-    # rotate x labels
-    p = p + theme(axis_text_x=element_text(angle=45, size=12), figure_size=(16, 6))
-
-    # legend off
-    p = p + theme(legend_position='none')
-
-
-    save_fig_plotnine(p, 'rel_weighted_degree_per_mine_boxplot.png', w= 14, h=8)
+    sns.boxplot(data=df_rel_w, x='Commodity', y='Occ_weight', showfliers=False, palette='Paired', ax = ax)
+    plt.xticks(rotation=60, size = 8)
+    plt.yticks(size = 8)
+    plt.ylabel('Occurance based weight')
+    plt.tight_layout()
+    save_fig('boxplot_occ_weight.png')
+    plt.show()
 
     return None
 
@@ -344,7 +368,6 @@ def calc_sum_prim_com(df):
 
     print(f'Number of mines: {number_of_mines}')
     print(f'Number of mines with more than one primary commodity: {non_singular_primary / number_of_mines * 100:.2f}%')
-
 
 def circular_nx_plot(G):
     # Define a dictionary to assign colors to primary and byproduct commodities
@@ -397,4 +420,4 @@ def main():
 
 
 if __name__ == '__main__': 
-    main()
+    boxplot_occ_weight()

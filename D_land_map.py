@@ -121,6 +121,8 @@ def read_and_merge(target_crs = 'EPSG:6933'):
 
     polys_ids = pd.read_csv(r'data\dcrm_cluster_data\dcrm_cluster_data\cluster_points_concordance.csv')
     merge = polys.merge(polys_ids, on='id_cluster', how='left', suffixes=('', '_conc'))
+
+    # only polygons with mached id have a material list
     merge_n = merge[~merge['id_data_source'].isna()]
 
     # Dup check 

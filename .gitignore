@@ -1,6 +1,8 @@
-\data/* 
+\data/*
 # except the supp folder
-!data/int/supp/
+!data/int
+\data/int/*
+!data/int/supp
 \fig
 \tab
 \orga

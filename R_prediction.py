@@ -60,7 +60,8 @@ model_paths = {'Ore_processed_mass': r'models\SVR_synth_Ore_processed_mass.pkl',
 
 replace_dict = {'Ore_processed_mass': 'COP',
                 'Tailings_production': 'CTP',
-                'Concentrate_production': 'CCP'}
+                'Concentrate_production': 'CCP',
+                'Tailings_production_mb': 'CTP_mb'}
 
 palette_dict = {'Copper': 'rocket_r',
                 'Nickel':'BuGn',
@@ -83,6 +84,8 @@ def get_alloc_pred():
     split = melt['Commodity'].str.split('_')
 
     melt['Com_type'], melt['Commodity'] = split.str[0], split.str[1]
+
+    
     return melt
 
 def get_countries_pred(crs = 6933, valid_switch = False):
@@ -127,8 +130,8 @@ def bar_country_alloc_facet():
     # Create FacetGrid
     g = sns.FacetGrid(data, col='Commodity', col_wrap=3, sharex=False, sharey=True)
     
-    g.map_dataframe(sns.barplot, x='iso3', y='Cumprod_weight', hue='Alloc_type', errorbar=None)
-    g.add_legend(loc=[0.8, 0.7], title='Commodity Type')
+    g.map_dataframe(sns.barplot, x='iso3', y='Cumprod_weight', hue='Alloc_type', errorbar=None, palette = 'PuBuGn')
+    g.add_legend(loc=[0.8, 0.65], title='Commodity Type')
 
     g.set_axis_labels('Country Code', 'COP log10(t)')
 
@@ -141,7 +144,7 @@ def bar_country_alloc_facet():
     
 
     plt.tight_layout()
-    save_fig("COP_top10_countries_facet_by_alloc")
+    save_fig("COP_top10_countries_facet_by_alloc", dpi=800)
     plt.show()
 
 def get_X_per_var(var_name):
@@ -192,7 +195,7 @@ def return_quantile(data, name):
     if name == 'Tailings_production':
         return data.quantile(0.97)
     else:
-        return data.max()+1
+        return data.max()
 
 def merge2geo():
     p='data\\int\\R_prediction\\best_model_prediction.csv.csv'
@@ -200,10 +203,24 @@ def merge2geo():
 
     # Read the CSV files
     df_pred = pd.read_csv(p)
+
+    piv = df_pred.pivot_table(index='id_data_source', columns='Target_var', values='Pred')
+
+    piv['Tailings_production_mb'] = piv['Ore_processed_mass'] - piv['Concentrate_production']
+
+
+    piv.reset_index(inplace=True)
+
+    df_pred = piv.melt(id_vars='id_data_source',value_vars=['Ore_processed_mass', 'Tailings_production_mb', 'Concentrate_production', 'Tailings_production'], var_name='Target_var', value_name='Pred')
+
+    # drop negative instances
+    df_pred = df_pred[df_pred['Pred'] > 0]
+
+
     df_feat = pd.read_csv(f)
 
-    # Clean and merge data
-    df_pred.drop(['Unnamed: 0'], axis=1, inplace=True)
+    # # Clean and merge data
+    # df_pred.drop(['Unnamed: 0'], axis=1, inplace=True)
 
     # calculate iqrs per target var
     q_99  = df_pred.groupby('Target_var')['Pred'].apply(lambda x: return_quantile(x, x.name)).reset_index()
@@ -230,36 +247,35 @@ def merge2geo():
 def return_iqr(data):
     return (data.quantile(0.75) - data.quantile(0.25))*3
 
-def geoplot_predictions(com = None, alloc = 'occ'):
+def geoplot_predictions(com = None, alloc = 'Occ'):
     
     # Define the Cartopy projection (Interrupted Goode Homolosine)
     proj = ccrs.InterruptedGoodeHomolosine()
+    
+    gdf = get_alloc_pred()
+    gdf['Cumprod_weight'] = gdf['Weight'] * gdf['Pred']
 
     if com != None:
-        gdf = get_alloc_pred()
+
+        gdf = gdf[gdf.Alloc_type == alloc]
             
         # get all commodities that contain the keyword
         gdf = gdf[gdf['Commodity'].str.contains(com)]  
 
         pal = palette_dict[com]
 
-        if alloc == 'occ':
-            gdf['Pred'] = gdf['Pred'] * gdf['Occ_weight']
-        elif alloc == 'prim':
-            gdf['Pred'] = gdf['Pred'] * gdf['Prim_weight']
-
-        else:
-            ValueError('Invalid allocation method')
     else:
-        gdf = merge2geo()
-        pal ='viridis'
+        gdf = gdf.groupby(['id_data_source', 'geometry', 'Target_var', 'Unary_area_weighted']).agg({'Cumprod_weight': 'sum'}).reset_index()
+
+        gdf = gpd.GeoDataFrame(gdf, geometry='geometry', crs='EPSG:4326')
+        pal = 'viridis'
 
     # Loop over each unique target variable
     for target in gdf['Target_var'].unique():
 
         subset = gdf[gdf['Target_var'] == target]
 
-        subset['Pred'] = np.log10(subset['Pred'])
+        subset['Cumprod_weight'] = np.log10(subset['Cumprod_weight'])
 
         # Create a figure and axes with the Cartopy projection
         fig = plt.figure(figsize=(14, 6))
@@ -272,10 +288,11 @@ def geoplot_predictions(com = None, alloc = 'occ'):
 
         # Plot the points using scatter; data is in lat/lon so use PlateCarree as transform.
         sc = ax.scatter(subset.geometry.x, subset.geometry.y, 
-                        c=subset['Pred'], cmap=pal, s= subset['Unary_area_weighted'], transform=ccrs.PlateCarree())
+                        c=subset['Cumprod_weight'], cmap=pal, s= subset['Unary_area_weighted'], transform=ccrs.PlateCarree())
 
+    
         # Add a colorbar
-        plt.colorbar(sc, ax=ax, orientation='vertical', label='Prediction log10(t)')	
+        plt.colorbar(sc, ax=ax, orientation='vertical', label=f'{replace_dict[target]} log10(t)')	
 
 
         gl = ax.gridlines(draw_labels=True, linestyle="--", linewidth=0.5, alpha=0.7)
@@ -309,6 +326,7 @@ def geoplot_predictions(com = None, alloc = 'occ'):
         else:
             # Save figure using your own save_fig() function
             save_fig(f'spat_explicit_{target}')
+
         plt.show()
 
 
@@ -440,4 +458,4 @@ def consistency_check():
 
     
 if __name__ == '__main__':
-    bar_country_alloc_facet()
+    geoplot_predictions()

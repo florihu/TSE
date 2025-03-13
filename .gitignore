@@ -1,9 +1,9 @@
 \data/* 
-!data/variable_description.xlsx
+# except the supp folder
+!data/int/supp/
 \fig
 \tab
 \orga
-\models
 \lib
 \__pycache__
 

@@ -24,7 +24,7 @@ from E_ml_explo import plot_network
 ##########################################################Params############################################################
 
 
-pred_set = r'data\int\D_ml_sample\X_pred_set.csv'
+pred_set = r'data\int\D_ml_sample\X_all_instances.csv'
 
 
 
@@ -145,38 +145,47 @@ def degree_distribution(G):
 
     return degree_distribution
 
-def plot_network_properties(df):
-    df.reset_index(inplace = True)
-    df.rename(columns = {'index': 'Commodity'}, inplace = True)
+def plot_network_properties():
+    df = pd.read_csv(pred_set)
 
+    # Generate the network
+    G = generate_network(df)
 
-    melt = pd.melt(df, id_vars=['Commodity'], value_vars=['Weighted_degree', 'Self_loop_weight', 'Degree_centrality', 'Clustering_coeff'], value_name='value')
+    # Calculate weighted degree per commodity
+    df = calculate_weighted_degree_per_commodity(G)
 
-
-    # do hist plots for the different network properties facet wrapped
-    p = (ggplot(melt, aes(x='value')) + geom_histogram(bins = 20) + facet_wrap('variable', scales='free') + theme_minimal())
-
-    save_fig_plotnine(p, 'network_properties_hist.png')
+    melt = pd.melt(df, id_vars=['Commodity'], 
+                   value_vars=['Weighted_degree', 'Self_loop_weight', 'Degree_centrality', 'Clustering_coeff'], 
+                   value_name='value', var_name='variable')
     
-    # do a plot with the 30 highest commoditeis by weighted degree and show all network properties
-    top_30 = df.nlargest(30, 'Weighted_degree')
-
-    # sorted
-    top_30 = top_30.sort_values('Weighted_degree', ascending = True)
-
-    # color dict for product and byproduct differntiation
-    color_dict = {'Primary': '#542788', 'Byprod': '#e08214'}
+    # Facet histograms for different network properties
+    g = sns.FacetGrid(melt, col='variable', col_wrap=2, sharex=False, sharey=False)
+    g.map_dataframe(sns.histplot, x='value', bins=20)
+    g.set_titles('{col_name}')
+    g.set_axis_labels("Value", "Count")
+    plt.tight_layout()
+    save_fig('network_properties.png')
+    plt.show()
+    plt.close()
+    
+    # Get top 30 commodities by weighted degree
+    top_30 = df.nlargest(30, 'Weighted_degree').sort_values('Weighted_degree', ascending=True)
+  
     top_30['Type'] = top_30['Commodity'].apply(lambda x: x.split('_')[0])
 
-    #make bar chart horizontal
-    p1 = (ggplot(top_30, aes(x='Commodity', y='Weighted_degree', fill = 'Type')) + geom_bar(stat='identity') + theme_minimal() + coord_flip() + scale_fill_manual(values = color_dict))
-
-    # set legend off
-    p1 = p1 + theme(legend_position='none')
-
-    save_fig_plotnine(p1, 'top_30_commodities_weighted_network_bar.png')
-
-
+    top_30['Commodity'] = top_30['Commodity'].apply(lambda x: x.split('_')[1])
+    
+    # Horizontal bar chart
+    plt.figure(figsize=(10, 6))
+    sns.barplot(data=top_30, y='Commodity', x='Weighted_degree', hue='Type', palette='Paired')
+    plt.xlabel("Weighted Degree")
+    plt.ylabel("Commodity")
+    plt.legend(title="Type", loc='upper right')
+    plt.tight_layout()
+    save_fig('top_30_commodities.png')
+    plt.show()
+    plt.close()
+    
     return None
 
 def interactive_network(G):
@@ -332,7 +341,6 @@ def prim_com_based_weight(df):
 
     return df_mine
 
-
 def boxplot_occ_weight(file_p = r'data\int\M_alloc\alloc_com.csv.csv'):
     '''
     This function plots a boxplot of the relative weighted degree per mine.
@@ -420,4 +428,5 @@ def main():
 
 
 if __name__ == '__main__': 
-    boxplot_occ_weight()
+    plot_network_properties()
+    pass

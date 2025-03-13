@@ -43,7 +43,7 @@ def save_fig(name, dpi=600):
 
     return None
 
-def save_fig_plotnine(plot, name, w=8, h=6, dpi=600):
+def save_fig_plotnine(plot, name, w=8, h=6, dpi=600, format='png'):
     base_folder = 'fig'
     # Get the calling script’s filename
     calling_script = inspect.stack()[1].filename
@@ -55,7 +55,7 @@ def save_fig_plotnine(plot, name, w=8, h=6, dpi=600):
 
     file_path = os.path.join(path, name)
 
-    plot.save(file_path, width=w, height=h, dpi=dpi)
+    plot.save(file_path, format = format, width=w, height=h, dpi=dpi)
 
     return None
 
@@ -127,10 +127,29 @@ def df_to_csv_int(data, name):
     return None
 
 
-def append_to_excel(filename, df, sheet_name):
-    with pd.ExcelWriter(filename, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
-        # Save the new sheet while keeping the existing ones
+def df_to_excel(filename, df, sheet_name):
+    base_folder = r'data\int'
+    # Get the calling script’s filename
+    calling_script = inspect.stack()[1].filename
+    script_name = os.path.basename(calling_script).replace('.py', '')
+
+    path = os.path.join(base_folder, script_name)
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+    file_path = os.path.join(path, filename + '.xlsx')
+
+    # Use 'a' mode if file exists; otherwise, create a new file with 'w' mode.
+    if os.path.exists(file_path):
+        mode = 'a'
+        sheet_option = 'replace'
+    else:
+        mode = 'w'
+        sheet_option = None  # Not needed when creating a new file
+
+    with pd.ExcelWriter(file_path, engine='openpyxl', mode=mode, if_sheet_exists=sheet_option) as writer:
         df.to_excel(writer, sheet_name=sheet_name, index=True)
+
 
 
 

@@ -47,6 +47,7 @@ world_bound_p = r'data\world_bound\world-administrative-boundaries.shp'
 eps_p = r'data\eps\OECD,DF_EPS,+all(1).csv'
 area_p = r'data\int\D_land_map\allocated_area.gpkg'
 all_coms = False
+all_instances = True
 
 sig = .05
 
@@ -295,19 +296,24 @@ def main():
 
         pred_feat = pred_feat.drop(columns=cols_to_drop)
 
-        # filter out all columns that contain target commodities
-        target_cols = [col for col in pred_feat.columns if any([com in col for com in target_commodities])]
-
+        
         # filter only instances that contain at least one target commodity
-        pred_feat = pred_feat[pred_feat[target_cols].sum(axis=1) > 0]
+
+        if all_instances:
+            out_name = 'X_all_instances'
+
+        else: 
+            # filter out all columns that contain target commodities
+            target_cols = [col for col in pred_feat.columns if any([com in col for com in target_commodities])]
+            pred_feat = pred_feat[pred_feat[target_cols].sum(axis=1) > 0]
+            out_name = 'X_pred_set'
 
         # filter out zero instances
         pred_feat.dropna(inplace=True)
 
         assert pred_feat.isna().sum().sum() == 0, 'There are still missing values in the prediction features'
 
-
-        df_to_csv_int(pred_feat, 'X_pred_set')
+        df_to_csv_int(pred_feat, out_name)
     
     else:
         cols_to_drop = ['Unnamed: 0', 'geometry','id_data_source', 'continent', 'iso3', 'COU']

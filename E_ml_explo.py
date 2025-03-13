@@ -139,7 +139,7 @@ def corr_heat_plot(p = r'data\int\E_ml_explo\correlation_results.csv', sig_level
         )
             
         # Save the plot
-        save_fig_plotnine(plot, f'{name}_correlation_matrix_heatmap.png', w=24, h=24)
+        save_fig_plotnine(plot, f'{name}_correlation_matrix_heatmap_small.png', w=14, h=14, dpi=100)
 
     pass
 
@@ -760,4 +760,4 @@ def get_data():
 
 
 if __name__ == '__main__':
-    pairplot()
+    corr_heat_plot()

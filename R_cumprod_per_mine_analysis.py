@@ -836,10 +836,99 @@ def manuscript_cumprod_plot():
         )
         save_fig_plotnine(plot, f'{t}_manuscript_compod_plot.png', w=20, h=10)
 
+
+def manuscript_cumprod_plot_seaborn():
+    # Prepare and reshape the data (as in the original function)
+    data = prep_data()
+    melt = data.melt(
+        id_vars=['Prop_id', 'Year', 'Target_var', 'Model', 'Prop_name', 'R2_text', 'Start_up_year'],
+        value_vars=['Observed', 'f_p_star', 'f_upper_ci', 'f_lower_ci', 'F_p_star', 'F_lower_ci', 'F_upper_ci'],
+        var_name='Var_type',
+        value_name='Value'
+    )
+    # Create separate columns for Type (e.g., 'p_star', 'upper_ci') and for a short code ('f' or 'F')
+    melt['Type'] = melt['Var_type'].str[2:]
+    melt['Var_type'] = melt['Var_type'].str[0]
+    melt['Var_type'].replace({'O': 'f'}, inplace=True)
+    melt['Type'].replace({'p_star': 'Simulated', 'served': 'Observed'}, inplace=True)
+    melt['Value'] = melt['Value'] / 10**6  # Convert to Mt
+
+    # Pivot the data so that each row has columns for Simulated, lower_ci, upper_ci, and Observed
+    piv = melt.pivot_table(
+        index=['Prop_id', 'Year', 'Target_var', 'Model', 'Prop_name', 'Var_type', 'Start_up_year', 'R2_text'],
+        columns='Type',
+        values='Value',
+        aggfunc='first'
+    ).reset_index()
+
+    piv['Year'] = piv['Year'] + piv['Start_up_year']
+
+    # Loop over target variables of interest
+    for t in ['Ore_processed_mass', 'Concentrate_production', 'Tailings_production']:
+        subset = piv[piv.Target_var == t].copy()
+        subset = subset[subset['Prop_name'].isin(rename_prop_name.keys())].copy()
+        # Rename the target variable based on production type
+        subset['Target_var'] = subset.apply(
+            lambda x: prod_rename_dict[x['Target_var']] if x['Var_type'] == 'f' else cumprod_rename_dict[x['Target_var']],
+            axis=1
+        )
+        # Replace Var_type codes with descriptive names
+        type_dict = {'f': 'Production', 'F': 'Cumulative Production'}
+        subset['Var_type'] = subset['Var_type'].replace(type_dict)
+        subset['Prop_name'] = subset['Prop_name'].replace(rename_prop_name)
+
+        # Create the FacetGrid: rows = Var_type, cols = Prop_name, with independent x and y scales
+        g = sns.FacetGrid(subset, row="Var_type", col="Prop_name",
+                          sharex=False, sharey=False, height=4, aspect=1.5)
+
+        # Define a plotting function for each facet
+        def facet_plot(data, color, **kwargs):
+            ax = plt.gca()
+            # Group data by Model so that each model gets its own line and confidence band
+            for model, df in data.groupby("Model"):
+                col = model_color.get(model, None)  # Use predefined color or default
+                # Plot the simulated production line
+                ax.plot(df["Year"], df["Simulated"], label=model, color=col, linewidth=1.5)
+                # Plot the confidence interval as a ribbon
+                ax.fill_between(df["Year"], df["lower_ci"], df["upper_ci"], color=col, alpha=0.2)
+            # Plot observed data points in black
+            ax.scatter(data["Year"], data["Observed"], color="black", s=10)
+            # For Production facets, add the R² text annotation at a fixed location
+            if data['Var_type'].iloc[0] == 'Production' and not data['R2_text'].isnull().all():
+                
+                ax.text(1990, 0.005, data['R2_text'].iloc[0],
+                        fontsize=8, color='black')
+            # Set y-axis to log scale
+            #ax.set_yscale("log")
+            ax.set_xlabel("Year", fontsize=12)
+            ax.set_ylabel("Value (Mt)", fontsize=12)
+            plt.xticks(rotation=45, fontsize=12)
+            plt.yticks(fontsize=12)
+
+        # Map the custom plotting function to the grid
+        g.map_dataframe(facet_plot)
+        # Create a legend manually
+        handles = []
+        labels = []
+        for model, col in model_color.items():
+            line, = plt.plot([], [], color=col, linewidth=1.5)
+            handles.append(line)
+            labels.append(model)
+
+        g.add_legend(title="Model", handles=handles, labels=labels, loc = [.1, .85], fontsize=10)
+
+        g.set_titles(col_template="{col_name}", row_template="{row_name}", size = 10)
+
+        # Set the overall figure size and save the plot
+        g.fig.set_size_inches(20, 10)
+        save_fig(f'{t}_manuscript_cumprod_plot.png', dpi= 800)
+        plt.show()
+        plt.close()
+
 #########################################Main Functions ##############################################
 
 
 
 if __name__ == '__main__':
     
-    manuscript_cumprod_plot()
+    manuscript_cumprod_plot_seaborn()

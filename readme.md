@@ -24,6 +24,7 @@ and resolution.
 * E : data exploration
 * M : modelling
 * R : result - Analysis
+* ZZ: obseoltet scripts
 
 ## variable nomenclature:
 * No units

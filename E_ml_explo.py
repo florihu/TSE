@@ -34,7 +34,7 @@ from sklearn.svm import SVR
 import networkx as nx
 
 
-from util import save_fig_plotnine, df_to_csv_int, df_to_gpkg, save_fig, get_path, df_to_latex, append_to_excel, df_to_latex
+from util import save_fig_plotnine, df_to_csv_int, df_to_gpkg, save_fig, get_path, df_to_latex, df_to_excel, df_to_latex
 ##########################################################Purpose##########################################################################
 
 
@@ -760,4 +760,4 @@ def get_data():
 
 
 if __name__ == '__main__':
-    corr_heat_plot()
+   sample_characteristics()

@@ -458,4 +458,6 @@ def consistency_check():
 
     
 if __name__ == '__main__':
-    geoplot_predictions()
+    geoplot_predictions(com = 'Copper', alloc = 'Prim')
+    geoplot_predictions(com = 'Nickel', alloc = 'Prim')
+    geoplot_predictions(com = 'Zinc', alloc = 'Prim')

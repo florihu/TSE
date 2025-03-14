@@ -5,7 +5,8 @@
 !data/int/supp
 \fig
 \tab
-\orga
+\orga/*
+!orga/SEMW_gl_version_hf.pdf*
 \lib
 \__pycache__
 

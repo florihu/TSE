@@ -305,10 +305,11 @@ def plot_train_results():
         p += scale_color_manual(values=color_dict)
 
         if synth:
-            save_fig_plotnine(p, f'{v}_ml_train_res_out_synth', dpi=800, w=12, h=6)
+            save_fig_plotnine(p, f'{v}_ml_train_res_synth.pdf', dpi=300, w=
+            12, h=6, format='pdf')
         else:
             # Save the plot
-            save_fig_plotnine(p, f'{v}_ml_train_res', dpi=800, w=12, h=6)
+            save_fig_plotnine(p, f'{v}_ml_train_res.pdf', dpi=300, w=12, h=6, format='pdf')
 
     pass
 
@@ -330,7 +331,7 @@ def descriptive_analysis():
 
 
 if __name__ == '__main__':
-    descriptive_analysis()
+    plot_train_results()
     
     
 

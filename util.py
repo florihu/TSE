@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import pandas as pd
 import itertools
-from plotnine import ggplot, geom_point, facet_wrap, facet_grid, aes
+from plotnine import ggplot, geom_point, facet_wrap, facet_grid, aes, labs, save_as_pdf_pages
 import geopandas as gpd
 def get_path(name):
     '''
@@ -57,7 +57,7 @@ def save_fig_plotnine(plot, name, w=8, h=6, dpi=600, format='png'):
 
     plot.save(file_path, format = format, width=w, height=h, dpi=dpi)
 
-    return None
+
 
 def df_to_latex(df, filename, multicolumn=False, longtable=False):
     base_folder = 'tab'

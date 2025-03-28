@@ -27,7 +27,7 @@ def get_path(name):
     # If not found, return None
     return None
 
-def save_fig(name, dpi=600):
+def save_fig(name, dpi=600, format='png'):
     base_folder = 'fig'
     # Get the calling script’s filename
     calling_script = inspect.stack()[1].filename
@@ -38,8 +38,11 @@ def save_fig(name, dpi=600):
         os.makedirs(path)
 
     file_path = os.path.join(path, name)
+    
+    # add format to file_path
+    file_path = file_path + '.' + format
 
-    plt.savefig(file_path, dpi=dpi)
+    plt.savefig(file_path, dpi=dpi, format=format)
 
     return None
 

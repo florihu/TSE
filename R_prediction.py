@@ -69,6 +69,16 @@ palette_dict = {'Copper': 'rocket_r',
 
 
 
+def read_model_params():
+    collect = []
+
+    for t in replace_dict.keys():
+        model = joblib.load(model_paths[t])
+        collect.append(model.get_params())
+        print(f'{t} model parameters: {model.get_params()}')
+    
+    pass
+
 def get_alloc_pred():
     alloc_p = r'data\int\M_alloc\alloc_com.csv.csv'
     alloc = pd.read_csv(alloc_p)
@@ -84,6 +94,8 @@ def get_alloc_pred():
     split = melt['Commodity'].str.split('_')
 
     melt['Com_type'], melt['Commodity'] = split.str[0], split.str[1]
+
+    melt['Pred_weight'] = melt['Pred'] * melt['Weight']
 
     
     return melt
@@ -359,24 +371,14 @@ def distributions(p='data\\int\\R_prediction\\best_model_prediction.csv.csv'):
     plt.show()
 
 
-def world_regions_agg(crs = '6933',alloc = 'occ'):
+def world_regions_agg(crs = '6933',alloc = 'Occ', t='COP'):
 
     w_regions = gpd.read_file(r'data\world_bound\world-administrative-boundaries.shp')
 
     gdf = get_alloc_pred()
     
-
-    if alloc == 'occ':
-        gdf['Pred'] = gdf['Pred'] * gdf['Occ_weight']
-    elif alloc == 'prim':
-        gdf['Pred'] = gdf['Pred'] * gdf['Prim_weight']
-
-    else:
-        ValueError('Invalid allocation method')
+    gdf = gdf[gdf.Alloc_type == alloc]
   
-
-   
-
     gdf['Com_abs'] = gdf['Commodity'].apply(lambda x: x.split('_')[1])
 
     gdf = gdf[gdf.Com_abs.isin(['Copper', 'Nickel', 'Zinc'])]
@@ -385,9 +387,9 @@ def world_regions_agg(crs = '6933',alloc = 'occ'):
     w_regions = gpd.sjoin(w_regions, gdf, how='inner', predicate='intersects')
 
     # sum per region
-    w_agg = w_regions.groupby(['iso3', 'Target_var', 'Com_abs']).agg({'Pred': 'sum'}).reset_index()
+    w_agg = w_regions.groupby(['iso3', 'Target_var', 'Com_abs']).agg({'Pred_weight': 'sum'}).reset_index()
 
-    w_agg.rename(columns={'Pred': 'Pred_agg'}, inplace=True)
+    w_agg.rename(columns={'Pred_weight': 'Pred_agg'}, inplace=True)
 
     w_agg['Pred_agg'] = w_agg['Pred_agg'] / 10**6
 
@@ -397,29 +399,27 @@ def world_regions_agg(crs = '6933',alloc = 'occ'):
     w_merge.to_crs(epsg=4326, inplace=True)
 
 
+    w_t = w_merge[w_merge['Target_var'] == t]
 
-    for t in w_merge['Target_var'].unique():
+    g = sns.FacetGrid(w_t, col='Com_abs', col_wrap=1,  height=2, aspect=5,  sharex=True, sharey=True)
 
-        w_t = w_merge[w_merge['Target_var'] == t]
+    plt.subplots_adjust(hspace=0.01)
 
-        g = sns.FacetGrid(w_t, col='Com_abs', col_wrap=1,  height=2, aspect=5,  sharex=True, sharey=True)
-
-        plt.subplots_adjust(hspace=0.01)
-
-        g.set_xlabels('Longitude')
-        g.set_ylabels('Latitude')
+    g.set_xlabels('Longitude')
+    g.set_ylabels('Latitude')
 
 
-        for ax , com in zip(g.axes, w_t['Com_abs'].unique()):
+    for ax , com in zip(g.axes, w_t['Com_abs'].unique()):
 
-            w_t[w_t.Com_abs == com].plot(column='Pred_agg', cmap='viridis', legend=True, ax=ax, legend_kwds={'label': 'Prediction (Mt)', 'orientation': 'vertical', 'shrink': 0.9})
+        w_t[w_t.Com_abs == com].plot(column='Pred_agg', cmap='viridis', legend=True, ax=ax, legend_kwds={'label': 'Prediction (Mt)', 'orientation': 'vertical', 'shrink': 0.9})
 
-            #increase the space to the legend
-            
-        plt.tight_layout()
+        #increase the space to the legend
 
-        save_fig(f'{t}_world_regions_agg_{alloc}')
-        plt.show()
+
+    plt.tight_layout()
+
+    save_fig(f'{t}_world_regions_agg_{alloc}')
+    plt.show()
       
     
 def consistency_check():
@@ -458,6 +458,4 @@ def consistency_check():
 
     
 if __name__ == '__main__':
-    geoplot_predictions(com = 'Copper', alloc = 'Prim')
-    geoplot_predictions(com = 'Nickel', alloc = 'Prim')
-    geoplot_predictions(com = 'Zinc', alloc = 'Prim')
+    world_regions_agg()

@@ -94,6 +94,61 @@ def valid_plot():
     save_fig('valid_plot.png', dpi = 800)
     plt.show()
 
+
+def get_comp_df():
+    this_study = get_countries_pred()
+    this_study.rename(columns={'name': 'Country_name', 'Alloc_type': 'Type', 'Cumprod_weight': 'COP'}, inplace=True)
+    
+    valid = get_ore_time_alloc()
+    valid['Type'] = 'GMF'
+    valid.rename(columns={'Cumprod_valid': 'COP'}, inplace=True)
+
+    # Filter this_study for relevant commodities and target variable
+    this_study = this_study[
+        (this_study['Commodity'].isin(['Copper', 'Nickel', 'Zinc'])) &
+        (this_study['Target_var'] == 'Ore_processed_mass')
+    ]
+
+    # Add ISO3 mapping if available
+    if 'iso3' in this_study.columns:
+        country_iso_map = this_study[['Country_name', 'iso3']].drop_duplicates()
+        valid = valid.merge(country_iso_map, on='Country_name', how='left')
+
+    # Select only necessary columns
+    this_study = this_study[['Country_name', 'Type', 'iso3', 'Commodity', 'COP']]
+    valid = valid[['Country_name', 'Type', 'iso3', 'Commodity', 'COP']]
+
+    # Concatenate the data frames
+    combined_df = pd.concat([valid, this_study], ignore_index=True)
+
+    return combined_df
+
+def valid_plot_2():
+    df = get_comp_df()
+    color_dict = {'GMF': '#d6604d', 'Occ': '#2166ac', 'Prim': '#4393c3'}
+
+    # Select top 10 countries
+    countries = ['CHL', 'USA', 'CAN', 'CHN', 'AUS', 'PER', 'MEX', 'RUS', 'ZMB', 'KAZ', 'IDN', 'BRA', 'ZAF']
+    df = df[df['iso3'].isin(countries)]
+
+    # Ensure Type column exists and is categorical
+    df['Type'] = df['Type'].astype(str).astype('category')
+
+    # Create FacetGrid
+    g = sns.FacetGrid(df, row='Commodity', sharey=True, sharex=True, height=2.5, aspect=2)
+    g.map_dataframe(sns.scatterplot, x='iso3', y='COP', hue='Type', palette=color_dict, s=40)
+
+    # Log scale
+    for ax in g.axes.flat:
+        ax.set_yscale('log')
+
+    g.set_ylabels('COP log(t)')
+    g.add_legend(loc='center right', ncol=1, title='Type')
+
+    save_fig('valid_plot_2', dpi=800, format='pdf')
+    plt.show()
+
+
 def rel_diff_plot():
     this_study = get_countries_pred()
     this_study.rename(columns={'name': 'Country_name'}, inplace=True)
@@ -141,5 +196,5 @@ def rel_diff_plot():
 
 
 if __name__ == '__main__':
-    valid_plot()
+    valid_plot_2()
     pass

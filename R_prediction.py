@@ -84,6 +84,9 @@ def get_alloc_pred():
     alloc = pd.read_csv(alloc_p)
     pred = merge2geo()
 
+    in_sample = pd.read_csv(r'data\int\D_ml_sample\ml_sample.csv')
+    in_sample['In_sample'] = 1
+
     merge = pred.merge(alloc, on='id_data_source', how='left')
 
     melt = merge.melt(id_vars=['id_data_source', 'geometry', 'Pred', 'Unary_area_weighted','Target_var', 'Commodity'],
@@ -95,10 +98,16 @@ def get_alloc_pred():
 
     melt['Com_type'], melt['Commodity'] = split.str[0], split.str[1]
 
-    melt['Pred_weight'] = melt['Pred'] * melt['Weight']
+    melt.id_data_source = melt.id_data_source.astype(str)
+    in_sample['id_data_source'] = in_sample.Prop_id.astype(str)
 
+    melt_merge = melt.merge(in_sample[['id_data_source', 'Target_var', 'In_sample']], on = ['id_data_source', 'Target_var'], how='left')   
+
+    melt_merge['In_sample'] = melt_merge['In_sample'].fillna(0)
+
+    melt_merge['In_sample'] = melt_merge['In_sample'].astype(int)
     
-    return melt
+    return melt_merge
 
 def get_countries_pred(crs = 6933, valid_switch = False):
 
@@ -259,85 +268,88 @@ def merge2geo():
 def return_iqr(data):
     return (data.quantile(0.75) - data.quantile(0.25))*3
 
-def geoplot_predictions(com = None, alloc = 'Occ'):
-    
-    # Define the Cartopy projection (Interrupted Goode Homolosine)
+def geoplot_predictions(com=None, alloc='Occ'):
     proj = ccrs.InterruptedGoodeHomolosine()
-    
     gdf = get_alloc_pred()
     gdf['Cumprod_weight'] = gdf['Weight'] * gdf['Pred']
 
-    if com != None:
-
+    if com is not None:
         gdf = gdf[gdf.Alloc_type == alloc]
-            
-        # get all commodities that contain the keyword
-        gdf = gdf[gdf['Commodity'].str.contains(com)]  
-
+        gdf = gdf[gdf['Commodity'].str.contains(com)]
         pal = palette_dict[com]
-
     else:
-        gdf = gdf.groupby(['id_data_source', 'geometry', 'Target_var', 'Unary_area_weighted']).agg({'Cumprod_weight': 'sum'}).reset_index()
-
+        gdf = gdf.groupby(['id_data_source', 'geometry', 'Target_var', 'Unary_area_weighted', 'In_sample']) \
+                 .agg({'Cumprod_weight': 'sum'}).reset_index()
         gdf = gpd.GeoDataFrame(gdf, geometry='geometry', crs='EPSG:4326')
         pal = 'viridis'
 
-    # Loop over each unique target variable
     for target in gdf['Target_var'].unique():
-
-        subset = gdf[gdf['Target_var'] == target]
-
+        subset = gdf[gdf['Target_var'] == target].copy()
         subset['Cumprod_weight'] = np.log10(subset['Cumprod_weight'])
 
-        # Create a figure and axes with the Cartopy projection
-        fig = plt.figure(figsize=(14, 6))
+        fig = plt.figure(figsize=(18, 10))
         ax = plt.axes(projection=proj)
         ax.set_global()
         ax.coastlines(color='grey', linewidth=0.5)
         ax.add_feature(cfeature.BORDERS, color='grey', linewidth=0.5)
         ax.add_feature(cfeature.LAND, color='lightgray')
 
+        # Split the subset into in-sample and out-of-sample
+        sample = subset[subset['In_sample'] == 1]
+        outsample = subset[subset['In_sample'] == 0]
 
-        # Plot the points using scatter; data is in lat/lon so use PlateCarree as transform.
-        sc = ax.scatter(subset.geometry.x, subset.geometry.y, 
-                        c=subset['Cumprod_weight'], cmap=pal, s= subset['Unary_area_weighted'], transform=ccrs.PlateCarree())
+        # Plot out-of-sample first (no edge color)
+        sc1 = ax.scatter(
+            outsample.geometry.x, outsample.geometry.y,
+            c=outsample['Cumprod_weight'], cmap=pal,
+            s=outsample['Unary_area_weighted'],
+            transform=ccrs.PlateCarree(),
+            edgecolors='none', alpha=0.7, linewidth=0.0
+        )
 
-    
-        # Add a colorbar
-        plt.colorbar(sc, ax=ax, orientation='vertical', label=f'{replace_dict[target]} log10(t)')	
+        # Plot in-sample on top (black edge)
+        sc2 = ax.scatter(
+            sample.geometry.x, sample.geometry.y,
+            c=sample['Cumprod_weight'], cmap=pal,
+            s=sample['Unary_area_weighted'],
+            transform=ccrs.PlateCarree(),
+            edgecolors='black', alpha=0.7, linewidth=.5
+        )
 
+        # Add colorbar — either scatter will work
+        plt.colorbar(sc2, ax=ax, orientation='vertical', label=f'{replace_dict[target]} log10(t)')
 
         gl = ax.gridlines(draw_labels=True, linestyle="--", linewidth=0.5, alpha=0.7)
-        
-        gl.right_labels = True  # Show longitude labels on the right edge
-        gl.left_labels = False  # Hide longitude labels on the left (inner plots)
-
-        gl.top_labels = False   # Hide latitude labels on the top (inner plots)
-        gl.bottom_labels = True # Show latitude labels on the bottom edge
-
+        gl.right_labels = True
+        gl.left_labels = False
+        gl.top_labels = False
+        gl.bottom_labels = True
         gl.xlabel_style = {'size': 8, 'color': 'grey'}
         gl.ylabel_style = {'size': 8, 'color': 'grey'}
 
+        # Create area size legend
         percentiles = np.quantile(subset['Unary_area_weighted'], [0.10, 0.25, 0.50, 0.75, 0.90, 0.99])
-
-        # Create legend handles based on percentile sizes
         handles = [plt.scatter([], [], s=p, color='gray', alpha=0.8) for p in percentiles]
         labels = [f"{p:.1f} km²" for p in percentiles]
 
-        # Add size legend
-        size_legend = ax.legend(handles, labels, loc="lower left", title="Area (km²)", 
-                        labelspacing=1, fontsize=8, title_fontsize=8)
-        
+        # Add custom legend entry for in-sample
+        sample_handle = plt.Line2D([], [], marker='o', linestyle='None',
+                                   markerfacecolor='lightgray', markeredgecolor='black',
+                                   markersize=8, label='In-sample')
+
+        size_legend = ax.legend(
+            handles + [sample_handle], labels + ['In-sample'],
+            loc="lower left", title="Area (km²)", labelspacing=1,
+            fontsize=12, title_fontsize=12
+        )
         ax.add_artist(size_legend)
 
         plt.tight_layout()
 
-        if com != None:
-            # Save figure using your own save_fig() function
-            save_fig(f'spat_explicit_{target}_{com}_{alloc}')
+        if com is not None:
+            save_fig(f'spat_explicit_{target}_{com}_{alloc}', format='pdf', dpi=600)
         else:
-            # Save figure using your own save_fig() function
-            save_fig(f'spat_explicit_{target}')
+            save_fig(f'spat_explicit_{target}', format='pdf', dpi=600)
 
         plt.show()
 
@@ -458,4 +470,4 @@ def consistency_check():
 
     
 if __name__ == '__main__':
-    world_regions_agg()
+   geoplot_predictions()
